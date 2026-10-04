@@ -705,6 +705,46 @@ class OwnTVDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migrateVersion47To48_preservesMembershipsAndAddsLegacyEventTimes() {
+        context.deleteDatabase(DB_NAME)
+        val old = context.openOrCreateDatabase(DB_NAME, Context.MODE_PRIVATE, null)
+        try {
+            executeSchemaQueries(old, "tv.own.owntv.core.database.OwnTVDatabase/47.json")
+            old.execSQL("INSERT INTO profiles (id, name, avatarColor, avatarId, isKids, pinHash, createdAt) VALUES (1, 'Primary', 1122867, 7, 0, NULL, 1)")
+            old.execSQL("INSERT INTO custom_category_members (id, profileId, mediaType, contextKey, itemId, position) VALUES (7, 1, 'LIVE', 'custom:a', 30, 4), (8, 1, 'LIVE', 'custom:b', 30, 2)")
+            old.version = 47
+        } finally {
+            old.close()
+        }
+
+        val db = openWithAllMigrations()
+        try {
+            withConnection(db) { sqlite ->
+                sqlite.prepare("SELECT id, contextKey, itemId, position, addedAt FROM custom_category_members ORDER BY id").use {
+                    assertTrue(it.step())
+                    assertEquals(7L, it.getLong(0)); assertEquals("custom:a", it.getText(1))
+                    assertEquals(30L, it.getLong(2)); assertEquals(4L, it.getLong(3)); assertEquals(0L, it.getLong(4))
+                    assertTrue(it.step())
+                    assertEquals(8L, it.getLong(0)); assertEquals("custom:b", it.getText(1))
+                    assertEquals(30L, it.getLong(2)); assertEquals(2L, it.getLong(3)); assertEquals(0L, it.getLong(4))
+                }
+                assertIndexExists(sqlite, "index_custom_category_members_profileId_mediaType_contextKey_itemId")
+                runBlocking {
+                    db.customCategoryDao().appendItem(1, MediaType.LIVE, "custom:a", 31)
+                    val added = db.customCategoryDao().getAllOnce().single { it.itemId == 31L }
+                    assertEquals(5, added.position)
+                    assertTrue(added.addedAt > 0)
+                }
+                sqlite.execSQL("PRAGMA foreign_keys = ON")
+                sqlite.execSQL("DELETE FROM profiles WHERE id = 1")
+                assertCount(sqlite, "custom_category_members", 0)
+            }
+        } finally {
+            db.close()
+        }
+    }
+
     private fun normNameOf(db: SQLiteConnection, epgChannelId: String): String? =
         db.prepare("SELECT normName FROM epg_channels WHERE epgChannelId = ?").use {
             it.bindText(1, epgChannelId)
@@ -1009,6 +1049,10 @@ class OwnTVDatabaseMigrationTest {
     private fun openForAssertions(db: OwnTVDatabase): SQLiteConnection {
         runBlocking { db.useWriterConnection { } }
         val connection = BundledSQLiteDriver().open(context.getDatabasePath(DB_NAME).absolutePath)
+        // Room can still be initializing invalidation tracking on its own writer. A bare driver
+        // connection defaults to no wait, so a short competing write produced intermittent BUSY
+        // failures even when run alone. Keep a bounded wait instead of retrying whole tests.
+        connection.execSQL("PRAGMA busy_timeout=5000")
         // Foreign keys are OFF by default on a bare SQLite connection; Room turns them on for its
         // own. Without this the cascade assertions silently pass their DELETE and then find the
         // child rows still present — which is how the port first failed, reporting a trending

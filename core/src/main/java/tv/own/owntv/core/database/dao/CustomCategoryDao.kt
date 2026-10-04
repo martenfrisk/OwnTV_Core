@@ -13,6 +13,9 @@ import tv.own.owntv.core.database.entity.MovieEntity
 import tv.own.owntv.core.database.entity.SeriesEntity
 import tv.own.owntv.core.model.MediaType
 
+// Three scope parameters plus a bounded ID set stay below older SQLite's 999 bind limit.
+private const val MEMBERSHIP_APPEND_CHUNK = 500
+
 /**
  * Membership rows of the user's custom combined categories (issue #87). Each row pins one content
  * item to a [position] inside a custom category, identified by its stable DataStore key
@@ -28,6 +31,13 @@ interface CustomCategoryDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(rows: List<CustomCategoryMemberEntity>)
+
+    /** Copy never replaces an existing membership; restore/reorder still use [insertAll]. */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAbsentMembers(rows: List<CustomCategoryMemberEntity>): List<Long>
+
+    @Query("SELECT itemId FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey AND itemId IN (:itemIds)")
+    suspend fun existingItemIds(profileId: Long, type: MediaType, contextKey: String, itemIds: List<Long>): List<Long>
 
     @Query("DELETE FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey")
     suspend fun clearContext(profileId: Long, type: MediaType, contextKey: String)
@@ -47,20 +57,43 @@ interface CustomCategoryDao {
     @Query("SELECT COALESCE(MAX(position), -1) FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey")
     suspend fun maxPosition(profileId: Long, type: MediaType, contextKey: String): Int
 
-    /** Appends one member atomically so two fast Move actions cannot receive the same position. */
+    /** Appends only if absent. Repeating Copy preserves the row ID and its existing position. */
     @Transaction
     suspend fun appendItem(profileId: Long, type: MediaType, contextKey: String, itemId: Long) {
-        insertAll(
-            listOf(
+        appendItems(profileId, type, contextKey, listOf(itemId))
+    }
+
+    /**
+     * Bulk Copy's membership primitive. Keeps existing members and their ordering, appends missing
+     * items in first-selected order, and returns how many were added. One transaction serializes the
+     * max-position read and every batch, so concurrent appends cannot claim the same positions.
+     * Queries/inserts are chunked; no full destination catalog is loaded. Provider data, favorites,
+     * suppression and global hiding are unchanged — Move coordinates its origin separately.
+     */
+    @Transaction
+    suspend fun appendItems(profileId: Long, type: MediaType, contextKey: String, itemIds: List<Long>): Int {
+        if (itemIds.isEmpty()) return 0
+        var nextPosition = maxPosition(profileId, type, contextKey).toLong() + 1
+        var added = 0
+        val deletedAt = latestDeletion(profileId)
+        check(deletedAt < Long.MAX_VALUE)
+        val addedAt = maxOf(System.currentTimeMillis(), deletedAt + 1)
+        for (batch in itemIds.distinct().chunked(MEMBERSHIP_APPEND_CHUNK)) {
+            val existing = existingItemIds(profileId, type, contextKey, batch).toHashSet()
+            val missing = batch.filterNot { it in existing }
+            if (missing.isEmpty()) continue
+            // Fail the whole transaction rather than wrapping to negative positions.
+            check(nextPosition + missing.size - 1 <= Int.MAX_VALUE)
+            val rows = missing.map { itemId ->
                 CustomCategoryMemberEntity(
-                    profileId = profileId,
-                    mediaType = type,
-                    contextKey = contextKey,
-                    itemId = itemId,
-                    position = maxPosition(profileId, type, contextKey) + 1,
-                ),
-            ),
-        )
+                    profileId = profileId, mediaType = type, contextKey = contextKey,
+                    itemId = itemId, position = (nextPosition++).toInt(),
+                    addedAt = addedAt,
+                )
+            }
+            added += insertAbsentMembers(rows).count { it != -1L }
+        }
+        return added
     }
 
     /** Does this row already exist? The dry run before a sync counts what is genuinely new. */
@@ -75,6 +108,15 @@ interface CustomCategoryDao {
 
     @Query("DELETE FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey AND itemId = :itemId")
     suspend fun deleteItem(profileId: Long, type: MediaType, contextKey: String, itemId: Long)
+
+    @Query("SELECT addedAt FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey AND itemId = :itemId")
+    suspend fun addedAt(profileId: Long, type: MediaType, contextKey: String, itemId: Long): Long?
+
+    @Query("DELETE FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey AND itemId = :itemId AND addedAt <= :at")
+    suspend fun deleteIfOlderThan(profileId: Long, type: MediaType, contextKey: String, itemId: Long, at: Long): Int
+
+    @Query("SELECT COALESCE(MAX(deletedAt), 0) FROM user_data_tombstones WHERE profileId = :profileId AND kind = 'member'")
+    suspend fun latestDeletion(profileId: Long): Long
 
     /**
      * Resolvable member counts for the active sources — the "Move to…" dialog's per-row badges.
@@ -125,7 +167,7 @@ interface CustomCategoryDao {
      */
     @Query(
         "SELECT m.profileId AS profileId, m.mediaType AS mediaType, m.itemId AS itemId, " +
-            "m.contextKey AS contextKey, m.position AS position, " +
+            "m.contextKey AS contextKey, m.position AS position, m.addedAt AS addedAt, " +
             "COALESCE(c.sourceId, mv.sourceId, s.sourceId) AS sourceId, " +
             "COALESCE(c.remoteId, mv.remoteId, s.remoteId) AS remoteId, " +
             "COALESCE(c.name, mv.name, s.name) AS name " +
@@ -312,6 +354,7 @@ data class CustomCategoryMemberExportRow(
     val itemId: Long,
     val contextKey: String,
     val position: Int,
+    val addedAt: Long,
     val sourceId: Long,
     val remoteId: String?,
     val name: String?,

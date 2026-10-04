@@ -1,5 +1,6 @@
 package tv.own.owntv.core.database.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -222,6 +223,8 @@ data class CustomCategoryMemberEntity(
     val contextKey: String,
     val itemId: Long,
     val position: Int,
+    /** Last addition time for local-sync deletion ordering; zero denotes a legacy membership. */
+    @ColumnInfo(defaultValue = "0") val addedAt: Long = 0,
 )
 
 /**

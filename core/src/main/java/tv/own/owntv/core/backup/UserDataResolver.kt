@@ -120,7 +120,14 @@ class UserDataResolver(
     ) {
         val record = describe(type, itemId) ?: return
         contextKey?.let { record.put("ctx", it) }
-        tombstoneDao.record(profileId, kind, canonicalIdentity(record), at)
+        // Preserve causal order even when two membership actions share a millisecond, or a peer's
+        // clock is ahead of ours. Other user-data kinds retain upstream's timestamp policy.
+        val deletedAt = if (kind == "member" && contextKey != null) {
+            val addedAt = customCategoryDao.addedAt(profileId, type, contextKey, itemId) ?: 0
+            check(addedAt < Long.MAX_VALUE)
+            maxOf(at, addedAt + 1)
+        } else at
+        tombstoneDao.record(profileId, kind, canonicalIdentity(record), deletedAt)
     }
 
     /** Trims the tombstone table to [MAX_TOMBSTONES]. Called once after a bulk deletion, not per row. */
@@ -188,13 +195,7 @@ class UserDataResolver(
             "fav" -> favoriteDao.removeIfOlderThan(pid, type, itemId, at)
             "his" -> historyDao.removeIfOlderThan(pid, type, itemId, at)
             "prog" -> progressDao.removeIfOlderThan(pid, type, itemId, at)
-            // Memberships carry no timestamp of their own — the row is a position in a list, not an
-            // event — so the deletion simply wins. Re-adding the item locally afterwards writes a
-            // fresh row, and the stale tombstone only ever suppresses records older than itself.
-            "member" -> {
-                customCategoryDao.deleteItem(pid, type, e.optString("ctx"), itemId)
-                1
-            }
+            "member" -> customCategoryDao.deleteIfOlderThan(pid, type, e.optString("ctx"), itemId, at)
             else -> 0
         }
         return deleted > 0
@@ -221,7 +222,7 @@ class UserDataResolver(
         }
         if ("member" in kinds) customCategoryDao.getAllOnce().forEach { m ->
             describe(m.mediaType, m.itemId)?.let {
-                out.put(it.put("p", m.profileId).put("kind", "member").put("ctx", m.contextKey).put("pos", m.position))
+                out.put(it.put("p", m.profileId).put("kind", "member").put("ctx", m.contextKey).put("pos", m.position).put("at", m.addedAt))
             }
         }
         // Per-series season/episode order. Always MediaType.SERIES, so it re-resolves through the
@@ -263,7 +264,7 @@ class UserDataResolver(
         val itemName = name ?: return null
         return JSONObject().put("t", mediaType.name).put("src", sourceId).putOpt("rid", remoteId).put("name", itemName)
             .put("p", profileId).put("kind", "member").put("ctx", contextKey).put("pos", position)
-            .put("oid", itemId)
+            .put("oid", itemId).put("at", addedAt)
     }
 
     private fun SeriesSortOrderExportRow.toJson(): JSONObject? {
@@ -474,7 +475,7 @@ class UserDataResolver(
             "fav" -> favoriteDao.exists(profileId, type, itemId) && favoriteDao.addedAt(profileId, type, itemId).let { it != null && it <= at }
             "his" -> historyDao.watchedAt(profileId, type, itemId).let { it != null && it <= at }
             "prog" -> progressDao.get(profileId, type, itemId)?.let { it.updatedAt <= at } == true
-            "member" -> customCategoryDao.exists(profileId, type, e.optString("ctx"), itemId)
+            "member" -> customCategoryDao.addedAt(profileId, type, e.optString("ctx"), itemId)?.let { it <= at } == true
             else -> false
         }
     }
@@ -525,7 +526,9 @@ class UserDataResolver(
         // against a profile that is never coming back.
         val pid = e.getLong("p")
         if (pid < 0 || profileDao.getById(pid) == null) return Resolution.HANDLED
-        val at = e.optLong("at", System.currentTimeMillis())
+        // Legacy membership records have no event time. Treating receipt time as a new addition
+        // would let an old backup or another device's stale membership undo a user's deletion.
+        val at = e.optLong("at", if (e.optString("kind") == "member") 0 else System.currentTimeMillis())
         // The other half of the merge rule: a record older than a deletion of the same row loses to
         // it. Without this, a merge sync hands back every favorite the user has ever removed, because
         // the far device's copy of the row is perfectly valid — it just predates the removal.
@@ -561,9 +564,16 @@ class UserDataResolver(
                 "order" -> contentOrderDao.insertAll(
                     listOf(ContentOrderEntity(profileId = pid, mediaType = type, contextKey = e.getString("ctx"), itemId = itemId, position = e.getInt("pos"))),
                 )
-                "member" -> customCategoryDao.insertAll(
-                    listOf(CustomCategoryMemberEntity(profileId = pid, mediaType = type, contextKey = e.getString("ctx"), itemId = itemId, position = e.getInt("pos"))),
-                )
+                "member" -> {
+                    val ctx = e.getString("ctx")
+                    // Existing restore/reorder position policy is retained. A stale or legacy
+                    // record must never roll back the addition time of a newer live membership.
+                    val addedAt = maxOf(at, customCategoryDao.addedAt(pid, type, ctx, itemId) ?: 0)
+                    customCategoryDao.insertAll(listOf(CustomCategoryMemberEntity(
+                        profileId = pid, mediaType = type, contextKey = ctx, itemId = itemId,
+                        position = e.getInt("pos"), addedAt = addedAt,
+                    )))
+                }
                 "sort" -> seriesSortOrderDao.setOrder(
                     profileId = pid, seriesId = itemId,
                     seasonsDescending = e.optBoolean("sdesc", false), episodesDescending = e.optBoolean("edesc", false),

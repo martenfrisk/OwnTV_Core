@@ -202,7 +202,7 @@
 1	technical	core/src/main/java/tv/own/owntv/core/backup/DeviceIdentity.kt	SHA-256
 2	json	core/src/main/java/tv/own/owntv/core/backup/DeviceIdentity.kt	id
 2	json	core/src/main/java/tv/own/owntv/core/backup/DeviceIdentity.kt	name
-9	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	at
+11	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	at
 12	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	ctx
 3	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	dur
 3	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	edesc
@@ -210,8 +210,8 @@
 6	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	ep
 12	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	fav
 12	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	his
-16	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	kind
-12	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	member
+17	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	kind
+14	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	member
 12	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	name
 5	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	oid
 9	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	order
@@ -523,6 +523,7 @@
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	ALTER TABLE `channels` ADD COLUMN `contentHash` INTEGER NOT NULL DEFAULT 0
 1	sql	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	ALTER TABLE `channels` ADD COLUMN `directSource` TEXT
 1	sql	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	ALTER TABLE `channels` ADD COLUMN `httpHeaders` TEXT
+1	sql	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	ALTER TABLE `custom_category_members` ADD COLUMN `addedAt` INTEGER NOT NULL DEFAULT 0
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	ALTER TABLE `epg_channels` ADD COLUMN `iconUrl` TEXT
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	ALTER TABLE `epg_channels` ADD COLUMN `normId` TEXT
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	ALTER TABLE `epg_channels` ADD COLUMN `normName` TEXT
@@ -1003,6 +1004,7 @@
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	SELECT o.profileId AS profileId, o.mediaType AS mediaType, o.itemId AS itemId,
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	WHERE c.sourceId = :sourceId OR m.sourceId = :sourceId OR s.sourceId = :sourceId
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	o.contextKey AS contextKey, o.position AS position,
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	DELETE FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey AND itemId = :itemId AND addedAt <= :at
 4	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	INNER JOIN custom_category_members m ON m.itemId = c.id AND m.profileId = :profileId AND m.mediaType = 'LIVE' AND m.contextKey = :contextKey
 4	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	INNER JOIN custom_category_members m ON m.itemId = mv.id AND m.profileId = :profileId AND m.mediaType = 'MOVIE' AND m.contextKey = :contextKey
 4	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	INNER JOIN custom_category_members m ON m.itemId = s.id AND m.profileId = :profileId AND m.mediaType = 'SERIES' AND m.contextKey = :contextKey
@@ -1012,16 +1014,19 @@
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	ORDER BY (CASE WHEN o.position IS NULL THEN 1 ELSE 0 END), o.position, c.name
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	ORDER BY (CASE WHEN o.position IS NULL THEN 1 ELSE 0 END), o.position, mv.name
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	ORDER BY (CASE WHEN o.position IS NULL THEN 1 ELSE 0 END), o.position, s.name
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	SELECT COALESCE(MAX(deletedAt), 0) FROM user_data_tombstones WHERE profileId = :profileId AND kind = 'member'
 1	sql	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	SELECT DISTINCT contextKey FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND itemId = :itemId
 1	sql	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	SELECT EXISTS(SELECT 1 FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey AND itemId = :itemId)
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	SELECT addedAt FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey AND itemId = :itemId
 4	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	SELECT c.* FROM channels c
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	SELECT itemId FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey AND itemId IN (:itemIds)
 4	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	SELECT mv.* FROM movies mv
 4	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	SELECT s.* FROM series s
 2	sql	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	UNION ALL
 3	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	WHERE c.sourceId IN (:sourceIds)
 3	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	WHERE mv.sourceId IN (:sourceIds)
 3	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	WHERE s.sourceId IN (:sourceIds)
-1	sql	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	m.contextKey AS contextKey, m.position AS position,
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	m.contextKey AS contextKey, m.position AS position, m.addedAt AS addedAt,
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/DownloadDao.kt	SELECT * FROM downloads WHERE id = :id
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/DownloadDao.kt	SELECT * FROM downloads WHERE profileId = :profileId ORDER BY createdAt DESC
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/DownloadDao.kt	SELECT * FROM downloads WHERE status = :status ORDER BY createdAt ASC
@@ -1582,6 +1587,7 @@
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/entity/TvProviderEntities.kt	surface
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/entity/TvProviderEntities.kt	tv_provider_programs
 1	sql	core/src/main/java/tv/own/owntv/core/database/entity/UserDataEntities.kt	-1
+1	room-schema	core/src/main/java/tv/own/owntv/core/database/entity/UserDataEntities.kt	0
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/entity/UserDataEntities.kt	__fav__
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/entity/UserDataEntities.kt	contentKey
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/entity/UserDataEntities.kt	content_order
