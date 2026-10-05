@@ -51,6 +51,7 @@ class GroupService(
 ) {
     private val journal = GroupOperationJournal(journalDirectory)
     private val compositions = GroupCompositionCommands(db, customize, userData, writer, journal, afterStep, ::resolveRows)
+    private val items = GroupItemCommands(db, customize, userData, writer, journal, afterStep, ::resolveRows)
     private val mutations = Mutex()
     private val stateMutex = Mutex()
     private val sourceLocks = ConcurrentHashMap<Long, Mutex>()
@@ -182,6 +183,74 @@ class GroupService(
         val total = pending.getInt("total")
         _progress.value = GroupOperationProgress(id, total = total, revision = revision())
         compositions.replay(pending, recovering) { next, completed ->
+            val revision = stateMutex.withLock {
+                val state = journal.readState()
+                state.getJSONObject("pending").put("next", next)
+                journal.writeState(state)
+                state.getLong("revision")
+            }
+            _progress.value = GroupOperationProgress(id, completed, total, revision)
+        }
+        return finishOperation(id)
+    }
+
+    suspend fun editItemsFromTv(edit: GroupItemEdit): Result<GroupItemResult> = try {
+        Result.success(editItems(edit))
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        Result.failure(failure)
+    }
+
+    suspend fun editItems(edit: GroupItemEdit): GroupItemResult = try {
+        withContext(Dispatchers.IO) {
+            mutations.withLock {
+                recoverLocked()
+                val sources = compositions.sources(edit.scope)
+                withSources(sources.toList()) {
+                    val revision = revision()
+                    checkDomain(edit.expectedRevision == null || edit.expectedRevision == revision, GroupError.REVISION_CONFLICT)
+                    val id = UUID.randomUUID().toString()
+                    val plan = try {
+                        items.prepare(id, edit, sources).also { plan ->
+                            afterStep(GroupMutationStage.ITEM_PLANNED, 0)
+                            stateMutex.withLock {
+                                val state = journal.readState()
+                                checkDomain(edit.expectedRevision == null || edit.expectedRevision == state.getLong("revision"), GroupError.REVISION_CONFLICT)
+                                if (plan.changed) {
+                                    state.put("pending", plan.manifest)
+                                    journal.writeState(state)
+                                }
+                            }
+                        }
+                    } catch (failure: Throwable) {
+                        val published = stateMutex.withLock { journal.readState().optJSONObject("pending")?.optString("id") == id }
+                        if (!published) journal.removeOperation(id)
+                        throw failure
+                    }
+                    if (!plan.changed) {
+                        journal.removeOperation(id)
+                        return@withSources GroupItemResult(id, plan.selected, revision())
+                    }
+                    val next = withContext(NonCancellable) { replayItems(plan.manifest, false) }
+                    GroupItemResult(id, plan.selected, next)
+                }
+            }
+        }
+    } catch (cancelled: CancellationException) {
+        _progress.value = GroupOperationProgress(revision = _progress.value.revision)
+        throw cancelled
+    } catch (failure: Exception) {
+        _progress.value = GroupOperationProgress(revision = _progress.value.revision,
+            failure = (failure as? GroupEditException)?.code ?: GroupError.JOURNAL_UNAVAILABLE)
+        throw failure
+    }
+
+    private suspend fun replayItems(pending: JSONObject, recovering: Boolean): Long {
+        val id = pending.getString("id")
+        val total = pending.getInt("total")
+        _progress.value = GroupOperationProgress(id, total = total, revision = revision())
+        items.replay(pending, recovering) { next, completed ->
             val revision = stateMutex.withLock {
                 val state = journal.readState()
                 state.getJSONObject("pending").put("next", next)
@@ -372,6 +441,7 @@ class GroupService(
                 }
                 val ids = edit.itemIds.distinct()
                 checkDomain(ids.all { it > 0 }, GroupError.INVALID_ITEM)
+                checkDomain(edit.itemKeys.isEmpty() || edit.itemKeys.keys == ids.toSet(), GroupError.INVALID_ITEM)
                 val id = UUID.randomUUID().toString()
                 _progress.value = GroupOperationProgress(id, total = ids.size, revision = revision)
                 val pending = JSONObject()
@@ -399,6 +469,7 @@ class GroupService(
                         for (itemId in batch) {
                             val item = items.getValue(itemId)
                             checkDomain(item.sourceId in sources, GroupError.INVALID_SOURCE)
+                            checkDomain(edit.itemKeys.isEmpty() || edit.itemKeys[itemId] == CustomizeKeys.item(item.sourceId, item.remoteId, item.name), GroupError.INVALID_ITEM)
                             if (profile.isKids && item.categoryId != null) {
                                 val adult = adultGroups[item.categoryId] ?: AdultCategoryClassifier.isAdult(db.categoryDao().getById(item.categoryId)?.name).also { adultGroups[item.categoryId] = it }
                                 checkDomain(!adult, GroupError.INVALID_ITEM)
@@ -463,6 +534,7 @@ class GroupService(
                     when (pending.optString("domain")) {
                         "groups" -> replayGroups(pending)
                         "composition" -> replayComposition(pending, true)
+                        "items" -> replayItems(pending, true)
                         else -> replay(pending)
                     }
                 }
@@ -589,7 +661,7 @@ class GroupService(
         for (record in records) {
             val old = current[record.getLong("oid")]
             val sameIdentity = old != null && old.sourceId == record.getLong("src") &&
-                if (record.has("rid")) old.remoteId == record.getString("rid") else old.remoteId == null && old.name == record.getString("name")
+                if (!record.isNull("rid")) old.remoteId == record.getString("rid") else old.remoteId == null && old.name == record.getString("name")
             resolved[record] = if (sameIdentity) old.id else null
             if (!sameIdentity) changed += record
         }

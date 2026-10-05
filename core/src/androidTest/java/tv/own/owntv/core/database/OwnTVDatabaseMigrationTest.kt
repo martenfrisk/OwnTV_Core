@@ -746,6 +746,27 @@ class OwnTVDatabaseMigrationTest {
     }
 
     @Test
+    fun migrateVersion49To50_preservesManualPositionsAndAddsLegacyEventTime() {
+        context.deleteDatabase(DB_NAME)
+        val old = context.openOrCreateDatabase(DB_NAME, Context.MODE_PRIVATE, null)
+        try {
+            executeSchemaQueries(old, "tv.own.owntv.core.database.OwnTVDatabase/49.json")
+            old.execSQL("INSERT INTO profiles (id, name, avatarColor, avatarId, isKids, pinHash, createdAt) VALUES (1, 'Primary', 0, 0, 0, NULL, 1)")
+            old.execSQL("INSERT INTO content_order (id, profileId, mediaType, contextKey, itemId, position) VALUES (71, 1, 'LIVE', '1:news', 31, 8)")
+            old.version = 49
+        } finally { old.close() }
+        val db = openWithAllMigrations()
+        try {
+            withConnection(db) { connection ->
+                connection.prepare("SELECT position, modifiedAt FROM content_order WHERE id = 71").use { query ->
+                    assertTrue(query.step())
+                    assertEquals(8L, query.getLong(0)); assertEquals(0L, query.getLong(1))
+                }
+            }
+        } finally { db.close() }
+    }
+
+    @Test
     fun migrateVersion48To49_retainsDeletionFactsAndAddsUnappliedGroupCleanupState() {
         context.deleteDatabase(DB_NAME)
         val old = context.openOrCreateDatabase(DB_NAME, Context.MODE_PRIVATE, null)

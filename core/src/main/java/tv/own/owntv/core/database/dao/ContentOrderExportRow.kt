@@ -13,6 +13,7 @@ data class ContentOrderExportRow(
     val itemId: Long,
     val contextKey: String,
     val position: Int,
+    val modifiedAt: Long,
     val sourceId: Long,
     val remoteId: String?,
     val name: String?,

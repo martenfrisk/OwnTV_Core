@@ -644,6 +644,19 @@ class GroupServiceTest {
         }
     }
 
+    @Test fun copyKeepsExistingPendingPlacementWhenALegacyNullRemoteIdReturns() = runBlocking {
+        db.channelDao().clearSource(source)
+        resolver.importAll(JSONArray().put(JSONObject().put("p", profile).put("kind", "member").put("t", "LIVE")
+            .put("src", source).put("rid", JSONObject.NULL).put("name", "Legacy").put("ctx", b).put("pos", 7).put("at", 10)))
+        db.channelDao().insertAll(listOf(ChannelEntity(id = 20, sourceId = source, categoryId = category,
+            name = "Legacy", streamUrl = "https://test/legacy")))
+        val result = service.compose(composition(GroupAction.COPY, GroupDestination(groupId = b), GroupSelection(origin, listOf(20))))
+        assertEquals(0, result.added)
+        resolver.resolvePending()
+        val member = db.customCategoryDao().getAllOnce().single()
+        assertEquals(20L, member.itemId); assertEquals(7, member.position); assertEquals(10L, member.addedAt)
+    }
+
     @Test fun cancellingCompositionDuringPlanningPublishesNothingAndOrphansAreRecoverable() = runBlocking {
         withTimeout(30_000) {
             coroutineScope {
@@ -660,6 +673,259 @@ class GroupServiceTest {
                 assertTrue(directory.listFiles().orEmpty().none { it.isDirectory })
             }
         }
+    }
+
+    private fun itemEdit(action: GroupItemAction, ids: List<Long> = listOf(1), names: Map<Long, String?> = emptyMap()) =
+        GroupItemEdit(GroupScope(profile, MediaType.LIVE), action, ids, names)
+
+    @Test fun itemRenameUsesDisplayOverridesAndRestoresWithoutTouchingProviderData() = runBlocking {
+        service.editItems(itemEdit(GroupItemAction.RENAME, listOf(2, 1), mapOf(1L to "  Morning  ", 2L to "Evening")))
+        assertEquals(mapOf("$source:channel-1" to "Morning", "$source:channel-2" to "Evening"), custom().itemNames)
+        assertEquals("Channel 1", db.channelDao().getById(1)!!.name)
+        assertTrue(store.observe(otherProfile, MediaType.LIVE).first().isEmpty)
+        val revision = service.revision()
+        service.editItems(itemEdit(GroupItemAction.RENAME, listOf(1), mapOf(1L to "Morning")))
+        assertEquals(revision, service.revision())
+        service.editItems(itemEdit(GroupItemAction.RENAME, listOf(1), mapOf(1L to null)))
+        assertEquals(mapOf("$source:channel-2" to "Evening"), custom().itemNames)
+    }
+
+    @Test fun itemRenameValidatesLateRowsBeforePublishingAnyOverride() = runBlocking {
+        channels(4..501)
+        val ids = (1L..501L).toList()
+        val names = ids.associateWith { if (it == 501L) "x".repeat(241) else "Renamed $it" }
+        try { service.editItems(itemEdit(GroupItemAction.RENAME, ids, names)); fail("Invalid late row accepted") }
+        catch (failure: GroupEditException) { assertEquals(GroupError.INVALID_NAME, failure.code) }
+        assertTrue(custom().itemNames.isEmpty()); assertEquals(0L, service.revision())
+        assertFalse(GroupOperationJournal(directory).readState().has("pending"))
+        assertTrue(directory.listFiles().orEmpty().none { it.isDirectory })
+    }
+
+    @Test fun itemEditsRejectForeignTypesSourcesProfilesAndIncompleteNames() = runBlocking {
+        channels(4..4, otherSource)
+        val invalid = listOf(
+            itemEdit(GroupItemAction.FAVORITE, listOf(1, 999)) to GroupError.INVALID_ITEM,
+            itemEdit(GroupItemAction.FAVORITE).copy(scope = GroupScope(999, MediaType.LIVE)) to GroupError.INVALID_PROFILE,
+            itemEdit(GroupItemAction.FAVORITE).copy(scope = GroupScope(profile, MediaType.EPISODE)) to GroupError.INVALID_TYPE,
+            itemEdit(GroupItemAction.FAVORITE, listOf(4)).copy(scope = GroupScope(profile, MediaType.LIVE, setOf(source))) to GroupError.INVALID_SOURCE,
+            itemEdit(GroupItemAction.RENAME, listOf(1, 2), mapOf(1L to "One")) to GroupError.INVALID_ITEM,
+            itemEdit(GroupItemAction.FAVORITE).copy(expectedRevision = 1) to GroupError.REVISION_CONFLICT,
+        )
+        for ((command, code) in invalid) {
+            try { service.editItems(command); fail("Expected $code") }
+            catch (failure: GroupEditException) { assertEquals(code, failure.code) }
+        }
+        assertTrue(db.favoriteDao().getAllOnce().isEmpty()); assertTrue(custom().itemNames.isEmpty()); assertEquals(0L, service.revision())
+    }
+
+    @Test fun capturedItemKeysRejectARowIdReusedByADifferentProviderTitle() = runBlocking {
+        val command = itemEdit(GroupItemAction.RENAME, names = mapOf(1L to "Chosen"))
+            .copy(itemKeys = mapOf(1L to "$source:channel-1"))
+        db.channelDao().clearSource(source)
+        channels(1..1, remote = "replacement")
+        try { service.editItems(command); fail("Reused row ID changed the wrong title") }
+        catch (failure: GroupEditException) { assertEquals(GroupError.INVALID_ITEM, failure.code) }
+        assertTrue(custom().itemNames.isEmpty()); assertEquals(0L, service.revision())
+    }
+
+    @Test fun capturedHideSelectionRejectsAReusedRowIdBeforeChangingGlobalVisibility() = runBlocking {
+        val command = edit(GroupAction.HIDE).copy(itemKeys = mapOf(1L to "$source:channel-1"))
+        db.channelDao().clearSource(source); channels(1..1, remote = "replacement")
+        rejected(GroupError.INVALID_ITEM, command)
+        assertTrue(custom().hiddenItems.isEmpty()); assertEquals(0L, service.revision())
+    }
+
+    @Test fun itemFavoritePreservesExistingPlacementAndUnfavoriteTravelsToOfflinePeers() = runBlocking {
+        db.favoriteDao().add(FavoriteEntity(profileId = profile, mediaType = MediaType.LIVE, itemId = 1, addedAt = 100))
+        service.editItems(itemEdit(GroupItemAction.FAVORITE, listOf(2, 1, 2)))
+        assertEquals(100L, db.favoriteDao().addedAt(profile, MediaType.LIVE, 1))
+        val stale = resolver.exportAll(setOf("fav"))
+        val revision = service.revision()
+        service.editItems(itemEdit(GroupItemAction.FAVORITE, listOf(1, 2)))
+        assertEquals(revision, service.revision())
+        service.editItems(itemEdit(GroupItemAction.UNFAVORITE, listOf(1, 2)))
+        assertEquals(2, resolver.importAll(stale))
+        assertTrue(db.favoriteDao().getAllOnce().isEmpty())
+        service.editItems(itemEdit(GroupItemAction.FAVORITE, listOf(1)))
+        resolver.applyTombstones(resolver.exportTombstones(setOf("fav")))
+        assertTrue(db.favoriteDao().exists(profile, MediaType.LIVE, 1))
+        assertFalse(db.favoriteDao().exists(profile, MediaType.LIVE, 2))
+    }
+
+    @Test fun itemEditsSupportMovieAndSeriesTitlesWithoutChangingSameNumberedLiveItems() = runBlocking {
+        db.movieDao().insertAll(listOf(MovieEntity(id = 1, sourceId = source, name = "Film", remoteId = "film", streamUrl = "https://test/film")))
+        db.seriesDao().insertSeries(listOf(SeriesEntity(id = 1, sourceId = source, name = "Show", remoteId = "show")))
+        for (type in listOf(MediaType.MOVIE, MediaType.SERIES)) {
+            val scope = GroupScope(profile, type)
+            service.editItems(GroupItemEdit(scope, GroupItemAction.RENAME, listOf(1), mapOf(1L to "Renamed ${type.name}")))
+            service.editItems(GroupItemEdit(scope, GroupItemAction.FAVORITE, listOf(1)))
+            assertEquals("Renamed ${type.name}", store.observe(profile, type).first().itemNames.values.single())
+            assertTrue(db.favoriteDao().exists(profile, type, 1))
+        }
+        assertTrue(custom().itemNames.isEmpty()); assertFalse(db.favoriteDao().exists(profile, MediaType.LIVE, 1))
+    }
+
+    @Test fun kidsItemSelectionRejectsALateAdultTitleBeforeSavingAnyFavorites() = runBlocking {
+        val adult = db.categoryDao().insertAll(listOf(CategoryEntity(sourceId = source, mediaType = MediaType.LIVE, name = "XXX Adult", remoteId = "adult"))).single()
+        db.channelDao().insertAll(listOf(ChannelEntity(id = 4, sourceId = source, categoryId = adult, name = "Adult", remoteId = "adult", streamUrl = "https://test/adult")))
+        db.profileDao().update(db.profileDao().getById(profile)!!.copy(isKids = true))
+        try { service.editItems(itemEdit(GroupItemAction.FAVORITE, listOf(1, 4))); fail("Adult selection accepted") }
+        catch (failure: GroupEditException) { assertEquals(GroupError.INVALID_ITEM, failure.code) }
+        assertTrue(db.favoriteDao().getAllOnce().isEmpty()); assertEquals(0L, service.revision())
+    }
+
+    @Test fun itemResetRestoresOrganizationAndKeepsMembershipFavoritesGuideAndOtherProfiles() = runBlocking {
+        service.edit(edit(GroupAction.MOVE, from = origin))
+        service.edit(edit(GroupAction.HIDE))
+        service.editItems(itemEdit(GroupItemAction.RENAME, listOf(1, 2), mapOf(1L to "One", 2L to "Two")))
+        service.editItems(itemEdit(GroupItemAction.FAVORITE))
+        store.update(profile, MediaType.LIVE) { it.copy(epgMatches = mapOf("$source:channel-1" to "guide-one"), epgShifts = mapOf("$source:channel-1" to "60")) }
+        db.contentOrderDao().insertAll(listOf(
+            ContentOrderEntity(profileId = profile, mediaType = MediaType.LIVE, contextKey = a, itemId = 1, position = 3),
+            ContentOrderEntity(profileId = profile, mediaType = MediaType.LIVE, contextKey = origin, itemId = 1, position = 2),
+            ContentOrderEntity(profileId = otherProfile, mediaType = MediaType.LIVE, contextKey = origin, itemId = 1, position = 9),
+        ))
+        val stale = resolver.exportAll(setOf("order"))
+        service.editItems(itemEdit(GroupItemAction.RESET))
+        val cust = custom()
+        assertEquals(mapOf("$source:channel-2" to "Two"), cust.itemNames)
+        assertTrue(cust.hiddenItems.isEmpty()); assertTrue(cust.movedFromOrigin.isEmpty())
+        assertEquals("guide-one", cust.epgMatches["$source:channel-1"]); assertEquals("60", cust.epgShifts["$source:channel-1"])
+        assertTrue(db.customCategoryDao().exists(profile, MediaType.LIVE, a, 1))
+        assertTrue(db.favoriteDao().exists(profile, MediaType.LIVE, 1))
+        assertEquals(2, resolver.importAll(stale))
+        assertEquals(otherProfile, db.contentOrderDao().getAllOnce().single().profileId)
+        assertEquals(category, db.channelDao().getById(1)!!.categoryId)
+    }
+
+    @Test fun itemResetIncludesMissingPendingOrderContextsAndRejectsTheirOldPositions() = runBlocking {
+        val key = "$source:channel-1"
+        // Import is deliberately left pending until the selected title is available again.
+        db.channelDao().clearSource(source)
+        resolver.importAll(JSONArray().put(JSONObject().put("kind", "order").put("p", profile).put("t", "LIVE")
+            .put("src", source).put("rid", "channel-1").put("name", "Channel 1").put("ctx", a).put("pos", 7).put("at", 100)))
+        channels(1..1)
+        store.renameItem(profile, MediaType.LIVE, key, "Old Name")
+        service.editItems(itemEdit(GroupItemAction.RESET))
+        resolver.resolvePending()
+        assertTrue(db.contentOrderDao().getAllOnce().isEmpty()); assertTrue(custom().itemNames.isEmpty())
+        assertEquals(1, resolver.exportTombstones(setOf("order")).length())
+    }
+
+    @Test fun itemResetRecoveryCompletesAfterRoomBeforeCustomizationWrite() = runBlocking {
+        store.renameItem(profile, MediaType.LIVE, "$source:channel-1", "Renamed")
+        db.contentOrderDao().merge(profile, MediaType.LIVE, origin, 1, 7, 100)
+        val failing = newService { stage, _ -> if (stage == GroupMutationStage.ITEM_DATA_WRITTEN) error("Interrupted") }
+        assertTrue(failing.editItemsFromTv(itemEdit(GroupItemAction.RESET)).isFailure)
+        assertEquals("Renamed", custom().itemNames["$source:channel-1"])
+        assertTrue(db.contentOrderDao().getAllOnce().isEmpty())
+        newService().recover()
+        assertTrue(custom().itemNames.isEmpty()); assertEquals(1L, service.revision())
+        assertFalse(GroupOperationJournal(directory).readState().has("pending"))
+    }
+
+    @Test fun acceptedItemFavoriteSurvivesRenumberingAndStaysPendingUntilTheTitleReturns() = runBlocking {
+        val failing = newService { stage, _ -> if (stage == GroupMutationStage.ITEM_DATA_WRITTEN) error("Interrupted") }
+        assertTrue(failing.editItemsFromTv(itemEdit(GroupItemAction.FAVORITE, listOf(1, 2))).isFailure)
+        db.channelDao().clearSource(source)
+        db.channelDao().insertAll(listOf(ChannelEntity(id = 1, sourceId = source, categoryId = category,
+            name = "Unrelated replacement", remoteId = "replacement", streamUrl = "https://test/replacement")))
+        db.favoriteDao().remove(profile, MediaType.LIVE, 1)
+        db.favoriteDao().add(FavoriteEntity(profileId = profile, mediaType = MediaType.LIVE, itemId = 1, addedAt = Long.MAX_VALUE - 1))
+        newService().recover()
+        // The interrupted command must not attach its favorite to the unrelated replacement.
+        assertEquals(Long.MAX_VALUE - 1, db.favoriteDao().addedAt(profile, MediaType.LIVE, 1))
+        channels(10..10, remote = "channel-1")
+        resolver.resolvePending()
+        assertTrue(db.favoriteDao().exists(profile, MediaType.LIVE, 10))
+        assertEquals(2, db.favoriteDao().getAllOnce().size)
+    }
+
+    @Test fun bulkItemRenameRecoveryFinishesAllFiftyThousandNamesAfterAChunkBoundary() = runBlocking {
+        channels(4..50_000)
+        val ids = (1L..50_000L).toList()
+        val failing = newService { stage, index -> if (stage == GroupMutationStage.CHUNK_COMMITTED && index == 0) error("Interrupted") }
+        assertTrue(failing.editItemsFromTv(itemEdit(GroupItemAction.RENAME, ids, ids.associateWith { "Saved $it" })).isFailure)
+        assertEquals(500, custom().itemNames.size)
+        val serialized = directory.walkTopDown().filter { it.isFile }.joinToString { it.readText() }
+        assertFalse(serialized.contains("password=never-journaled")); assertFalse(serialized.contains("https://stream.test"))
+        newService().recover()
+        assertEquals(50_000, custom().itemNames.size)
+        assertEquals("Saved 50000", custom().itemNames["$source:channel-50000"])
+        assertEquals(1L, service.revision())
+    }
+
+    @Test fun bulkFavoriteAndUnfavoriteRecoverEverySelectedTitleBeyondTheOldSnapshotLimit() = runBlocking {
+        channels(4..10_001)
+        val ids = (1L..10_001L).toList()
+        val failing = newService { stage, index -> if (stage == GroupMutationStage.CHUNK_COMMITTED && index == 0) error("Interrupted") }
+        assertTrue(failing.editItemsFromTv(itemEdit(GroupItemAction.FAVORITE, ids)).isFailure)
+        newService().recover()
+        assertEquals(10_001, db.favoriteDao().getAllOnce().size)
+        val stale = resolver.exportAll(setOf("fav"))
+        assertTrue(failing.editItemsFromTv(itemEdit(GroupItemAction.UNFAVORITE, ids)).isFailure)
+        newService().recover()
+        assertTrue(db.favoriteDao().getAllOnce().isEmpty())
+        db.tombstoneDao().prune(10_000)
+        assertEquals(10_001, resolver.importAll(stale))
+        assertTrue(db.favoriteDao().getAllOnce().isEmpty()); assertEquals(2L, service.revision())
+    }
+
+    @Test fun cancellingItemPlanningWritesNothingAndClearsOrphanChunks() = runBlocking {
+        withTimeout(30_000) { coroutineScope {
+            val planned = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
+            val operation = newService { stage, _ -> if (stage == GroupMutationStage.ITEM_PLANNED) { planned.complete(Unit); release.await() } }
+            val job = async { operation.editItems(itemEdit(GroupItemAction.FAVORITE)) }
+            planned.await(); job.cancel(); job.join()
+            assertFalse(GroupOperationJournal(directory).readState().has("pending"))
+            assertTrue(db.favoriteDao().getAllOnce().isEmpty()); assertEquals(0L, service.revision())
+            newService().recover(); assertTrue(directory.listFiles().orEmpty().none { it.isDirectory })
+        } }
+    }
+
+    @Test fun cancellingAcceptedItemResetStillFinishesBothStores() = runBlocking {
+        store.renameItem(profile, MediaType.LIVE, "$source:channel-1", "Renamed")
+        withTimeout(30_000) { coroutineScope {
+            val written = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
+            val operation = newService { stage, _ -> if (stage == GroupMutationStage.ITEM_DATA_WRITTEN) { written.complete(Unit); release.await() } }
+            val job = async { operation.editItemsFromTv(itemEdit(GroupItemAction.RESET)) }
+            written.await(); job.cancel(); release.complete(Unit); job.join()
+            assertTrue(custom().itemNames.isEmpty()); assertEquals(1L, service.revision())
+            assertFalse(GroupOperationJournal(directory).readState().has("pending"))
+        } }
+    }
+
+    @Test fun itemNoOpRechecksTheRevisionAfterAnIndependentSourceFinishesImporting() = runBlocking {
+        withTimeout(30_000) { coroutineScope {
+            val imported = CompletableDeferred<Unit>(); val releaseImport = CompletableDeferred<Unit>()
+            val planned = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
+            service = newService { stage, _ -> if (stage == GroupMutationStage.ITEM_PLANNED) { planned.complete(Unit); release.await() } }
+            val importJob = async { service.withCatalogSource(otherSource) { imported.complete(Unit); releaseImport.await() } }
+            imported.await()
+            val command = itemEdit(GroupItemAction.RENAME, names = mapOf(1L to null))
+                .copy(scope = GroupScope(profile, MediaType.LIVE, setOf(source)), expectedRevision = 0)
+            val job = async { service.editItemsFromTv(command) }
+            planned.await(); releaseImport.complete(Unit); importJob.await(); release.complete(Unit)
+            assertEquals(GroupError.REVISION_CONFLICT, (job.await().exceptionOrNull() as GroupEditException).code)
+            assertTrue(custom().itemNames.isEmpty()); assertEquals(1L, service.revision())
+        } }
+    }
+
+    @Test fun manualOrderBackupMergePreservesNewChoiceAndExplicitRestoreReinstatesSnapshot() = runBlocking {
+        db.contentOrderDao().merge(profile, MediaType.LIVE, origin, 1, 7, 100)
+        val manager = backups(); val folder = File(context.cacheDir, "backup-order-${UUID.randomUUID()}")
+        try {
+            val file = File(manager.export(folder, setOf(BackupManager.Section.MANUAL_REORDER), profileIds = setOf(profile), recordAsBackup = false).getOrThrow())
+            val data = JSONObject(BackupContainer.open(file, null).json)
+            assertEquals(24, data.getInt("version"))
+            assertEquals(100L, data.getJSONArray("userData").getJSONObject(0).getLong("at"))
+            db.contentOrderDao().merge(profile, MediaType.LIVE, origin, 1, 2, 300)
+            manager.import(file, setOf(BackupManager.Section.MANUAL_REORDER), mode = BackupManager.ImportMode.MERGE).getOrThrow()
+            assertEquals(2, db.contentOrderDao().getAllOnce().single().position)
+            manager.import(file, setOf(BackupManager.Section.MANUAL_REORDER), mode = BackupManager.ImportMode.RESTORE).getOrThrow()
+            val restored = db.contentOrderDao().getAllOnce().single()
+            assertEquals(7, restored.position); assertTrue(restored.modifiedAt > 300)
+        } finally { folder.deleteRecursively() }
     }
 
     @Test fun copyIsOrderedIdempotentAndKeepsProviderFavoritesAndOtherGroups() = runBlocking {

@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -14,6 +15,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import tv.own.owntv.core.database.OwnTVDatabase
+import tv.own.owntv.core.database.entity.ContentOrderEntity
 import tv.own.owntv.core.database.entity.FavoriteEntity
 import tv.own.owntv.core.database.entity.MovieEntity
 import tv.own.owntv.core.database.entity.PlaybackProgressEntity
@@ -331,6 +333,73 @@ class UserDataTombstoneTest {
     }
 
     private suspend fun incomingDeletion(itemId: Long, at: Long): JSONArray = incomingFavorites(itemId, at)
+
+    @Test
+    fun olderOrderMergeCannotOverwriteANewerLocalPosition() = runBlocking {
+        val movieId = insertMovie("m-order", "Ordered")
+        db.contentOrderDao().merge(profileId, MediaType.MOVIE, "custom:library", movieId, 7, 300)
+        resolver.importAll(incomingOrder(position = 2, at = 100))
+        assertEquals(7, db.contentOrderDao().getAllOnce().single().position)
+        resolver.importAll(incomingOrder(position = 4, at = 400))
+        assertEquals(4, db.contentOrderDao().getAllOnce().single().position)
+        assertEquals(400L, db.contentOrderDao().getAllOnce().single().modifiedAt)
+    }
+
+    @Test
+    fun orderResetRefusesStalePositionButAllowsANewerChoice() = runBlocking {
+        val movieId = insertMovie("m-order", "Ordered")
+        val identity = incomingOrder(2, 100).getJSONObject(0)
+        db.contentOrderDao().merge(profileId, MediaType.MOVIE, "custom:library", movieId, 2, 100)
+        resolver.rememberOrderRemoval(profileId, identity, "custom:library", 200)
+        db.contentOrderDao().deleteIfOlderThan(profileId, MediaType.MOVIE, "custom:library", movieId, 200)
+        assertEquals(1, resolver.importAll(incomingOrder(2, 100)))
+        assertEquals(0, db.contentOrderDao().getAllOnce().size)
+        resolver.importAll(incomingOrder(4, 300))
+        assertEquals(4, db.contentOrderDao().getAllOnce().single().position)
+        resolver.applyTombstones(resolver.exportTombstones(setOf("order")))
+        assertEquals(4, db.contentOrderDao().getAllOnce().single().position)
+    }
+
+    @Test
+    fun explicitOrderRestoreMakesTheSnapshotANewChoiceAndLaterStaleMergeCannotUndoIt() = runBlocking {
+        val movieId = insertMovie("m-order", "Ordered")
+        db.contentOrderDao().merge(profileId, MediaType.MOVIE, "custom:library", movieId, 7, Long.MAX_VALUE - 100)
+        resolver.importAll(incomingOrder(2, 0), restoreOrder = true)
+        val restored = db.contentOrderDao().getAllOnce().single()
+        assertEquals(2, restored.position); assertEquals(Long.MAX_VALUE - 99, restored.modifiedAt)
+        resolver.importAll(incomingOrder(7, Long.MAX_VALUE - 100))
+        assertEquals(2, db.contentOrderDao().getAllOnce().single().position)
+    }
+
+    @Test
+    fun legacyOrderWithoutTimeRemainsOldWhenItArrivesAfterReset() = runBlocking {
+        insertMovie("m-order", "Ordered")
+        val legacy = incomingOrder(2, 0)
+        legacy.getJSONObject(0).remove("at")
+        resolver.rememberOrderRemoval(profileId, legacy.getJSONObject(0), "custom:library", 1)
+        assertEquals(1, resolver.importAll(legacy))
+        assertEquals(0, db.contentOrderDao().getAllOnce().size)
+    }
+
+    @Test
+    fun pruningWatchHistoryKeepsEveryBulkFavoriteAndOrderRemovalFact() = runBlocking {
+        for (index in 0..10_000) {
+            db.tombstoneDao().record(profileId, "fav", "favorite-$index", index.toLong())
+            db.tombstoneDao().record(profileId, "order", "order-$index", index.toLong())
+        }
+        db.tombstoneDao().record(profileId, "his", "old-watch", 1)
+        db.tombstoneDao().record(profileId, "his", "new-watch", 2)
+        db.tombstoneDao().prune(1)
+        val records = db.tombstoneDao().getAllOnce()
+        assertEquals(10_001, records.count { it.kind == "fav" })
+        assertEquals(10_001, records.count { it.kind == "order" })
+        assertEquals(listOf("new-watch"), records.filter { it.kind == "his" }.map { it.identity })
+    }
+
+    private fun incomingOrder(position: Int, at: Long): JSONArray = JSONArray().put(
+        JSONObject().put("kind", "order").put("p", profileId).put("t", "MOVIE").put("src", sourceId)
+            .put("rid", "m-order").put("name", "Ordered").put("ctx", "custom:library").put("pos", position).put("at", at),
+    )
 
     private suspend fun insertMovie(remoteId: String?, name: String): Long {
         db.movieDao().insertAll(

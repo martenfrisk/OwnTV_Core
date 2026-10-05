@@ -49,6 +49,9 @@ interface TombstoneDao {
     @Query("SELECT COALESCE(MAX(deletedAt), 0) FROM user_data_tombstones WHERE profileId = :profileId AND kind = 'group'")
     suspend fun latestGroupDeletion(profileId: Long): Long
 
+    @Query("SELECT COALESCE(MAX(deletedAt), 0) FROM user_data_tombstones WHERE profileId = :profileId AND kind = :kind")
+    suspend fun latestDeletion(profileId: Long, kind: String): Long
+
     @Query("UPDATE user_data_tombstones SET groupAppliedAt = :at WHERE profileId = :profileId AND kind = 'group' AND identity = :identity AND deletedAt = :at")
     suspend fun markGroupApplied(profileId: Long, identity: String, at: Long)
 
@@ -66,12 +69,12 @@ interface TombstoneDao {
     suspend fun deleteForProfiles(profileIds: List<Long>)
 
     /**
-     * Caps watch/favorite deletion history. Group and membership facts survive this cap: discarding
+     * Caps watch/resume deletion history. Organization and favorite facts survive this cap: discarding
      * one after a large edit would allow an offline device to resurrect the user's organization.
      */
     @Query(
-        "DELETE FROM user_data_tombstones WHERE kind NOT IN ('group', 'member') AND id NOT IN " +
-            "(SELECT id FROM user_data_tombstones WHERE kind NOT IN ('group', 'member') ORDER BY deletedAt DESC LIMIT :keep)",
+        "DELETE FROM user_data_tombstones WHERE kind NOT IN ('group', 'member', 'order', 'fav') AND id NOT IN " +
+            "(SELECT id FROM user_data_tombstones WHERE kind NOT IN ('group', 'member', 'order', 'fav') ORDER BY deletedAt DESC LIMIT :keep)",
     )
     suspend fun prune(keep: Int)
 }

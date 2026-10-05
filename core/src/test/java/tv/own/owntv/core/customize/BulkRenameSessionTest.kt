@@ -22,6 +22,19 @@ class BulkRenameSessionTest {
     }
     private val rules = listOf(RenameRules.Rule(RenameRules.Action.ADD, RenameRules.Placement.PREFIX, "New "))
 
+    @Test fun automaticCleanupCannotBypassAnOversizedSelectionRefusal() {
+        val dispatcher = QueuedDispatcher()
+        val scope = CoroutineScope(SupervisorJob() + dispatcher)
+        val session = BulkRenameSession(scope, { error("Refused selection was saved") }, {}, { emptySet() })
+        try {
+            session.start(listOf("old" to "News"))
+            session.start((0..BULK_RENAME_MAX_ROWS).map { "item-$it" to "Item $it" })
+            session.autoCleanup(); dispatcher.drain()
+            assertEquals(BulkRenameSession.Screen.REFUSED, session.screen.value)
+            assertTrue(session.preview.value.isEmpty())
+        } finally { scope.cancel(); dispatcher.drain() }
+    }
+
     @Test fun queuedDoneKeepsItsAcceptedRowsAndOriginalScope() = runBlocking {
         val dispatcher = QueuedDispatcher()
         val scope = CoroutineScope(SupervisorJob() + dispatcher)

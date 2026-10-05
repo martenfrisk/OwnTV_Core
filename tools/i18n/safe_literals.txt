@@ -214,33 +214,33 @@
 3	json	core/src/main/java/tv/own/owntv/core/backup/GroupDeletionResolver.kt	rid
 4	json	core/src/main/java/tv/own/owntv/core/backup/GroupDeletionResolver.kt	src
 5	json	core/src/main/java/tv/own/owntv/core/backup/GroupDeletionResolver.kt	t
-12	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	at
-22	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	ctx
+17	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	at
+27	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	ctx
 1	preference-key	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	cust_
 3	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	dur
 3	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	edesc
 1	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	entries
 6	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	ep
-13	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	fav
+15	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	fav
 3	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	group
 12	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	his
-20	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	kind
-19	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	member
-13	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	name
-5	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	oid
-12	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	order
+23	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	kind
+21	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	member
+14	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	name
+7	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	oid
+21	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	order
 1	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	owntv_pending_userdata
-16	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	p
-6	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	pos
+18	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	p
+11	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	pos
 13	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	prog
-15	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	rid
+16	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	rid
 3	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	sdesc
 6	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	season
 5	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	sname
 9	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	sort
-15	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	src
+16	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	src
 5	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	srid
-24	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	t
+25	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	t
 1	json	core/src/main/java/tv/own/owntv/core/backup/UserDataWriter.kt	fav
 4	json	core/src/main/java/tv/own/owntv/core/backup/UserDataWriter.kt	his
 1	json	core/src/main/java/tv/own/owntv/core/backup/UserDataWriter.kt	member
@@ -509,7 +509,7 @@
 5	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	key
 3	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	kind
 2	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	member
-5	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	name
+3	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	name
 1	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	next
 2	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	oid
 1	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	order
@@ -519,13 +519,39 @@
 1	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	p
 7	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	pos
 2	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	profile
-3	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	rid
+1	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	rid
 1	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	sources
-3	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	src
+2	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	src
 1	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	t
 4	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	target
 1	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	total
 2	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	type
+2	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	action
+15	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	at
+2	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	chunks
+5	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	ctx
+3	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	displayName
+1	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	domain
+4	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	fav
+2	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	id
+1	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	items
+3	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	key
+3	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	kind
+3	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	name
+1	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	next
+2	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	oid
+3	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	oldFavAt
+3	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	order
+3	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	orders
+1	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	p
+4	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	pos
+2	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	profile
+4	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	rid
+1	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	sources
+3	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	src
+3	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	t
+1	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	total
+2	json	core/src/main/java/tv/own/owntv/core/customize/GroupItemCommands.kt	type
 2	file-path	core/src/main/java/tv/own/owntv/core/customize/GroupOperationJournal.kt	$index.json
 2	json	core/src/main/java/tv/own/owntv/core/customize/GroupOperationJournal.kt	revision
 1	file-path	core/src/main/java/tv/own/owntv/core/customize/GroupOperationJournal.kt	state.json
@@ -547,28 +573,29 @@
 3	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	favoritesOrigin
 1	file-path	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	group-operations
 2	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	groups
-8	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	id
+10	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	id
+1	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	items
 6	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	key
 1	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	kind
 1	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	member
 8	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	name
-4	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	next
+5	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	next
 4	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	oid
 5	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	origin
 2	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	originAt
 3	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	originPos
 1	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	p
-10	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	pending
+13	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	pending
 5	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	pos
 4	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	profile
 2	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	restoreProvider
-13	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	revision
+15	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	revision
 3	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	rid
 3	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	sources
 2	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	src
 1	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	t
 2	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	target
-6	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	total
+7	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	total
 4	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	type
 2	room-schema	core/src/main/java/tv/own/owntv/core/database/BulkInsertHelper.kt	\0
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/BulkInsertHelper.kt	$msg — no canonical indexes for ${state.table}, indexes were dropped and NOT restored
@@ -611,6 +638,7 @@
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	ALTER TABLE `channels` ADD COLUMN `contentHash` INTEGER NOT NULL DEFAULT 0
 1	sql	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	ALTER TABLE `channels` ADD COLUMN `directSource` TEXT
 1	sql	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	ALTER TABLE `channels` ADD COLUMN `httpHeaders` TEXT
+1	sql	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	ALTER TABLE `content_order` ADD COLUMN `modifiedAt` INTEGER NOT NULL DEFAULT 0
 1	sql	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	ALTER TABLE `custom_category_members` ADD COLUMN `addedAt` INTEGER NOT NULL DEFAULT 0
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	ALTER TABLE `epg_channels` ADD COLUMN `iconUrl` TEXT
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	ALTER TABLE `epg_channels` ADD COLUMN `normId` TEXT
@@ -868,6 +896,7 @@
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	`maxPageItems` INTEGER NOT NULL,
 8	sql	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	`mediaType` TEXT NOT NULL,
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	`metadataLanguage` TEXT NOT NULL,
+1	sql	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	`modifiedAt` INTEGER NOT NULL DEFAULT 0,
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	`nextPage` INTEGER NOT NULL,
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	`off` INTEGER NOT NULL DEFAULT 0,
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	`offsetMs` INTEGER NOT NULL,
@@ -926,6 +955,7 @@
 10	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	channels
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	channels_fts
 4	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	contentHash
+1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	content_order
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	directSource
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	drmConfig
 4	log	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	epg_channels
@@ -942,6 +972,7 @@
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	manifestType
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	maxConnections
 1	sql	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	maxConnectionsProbedAt
+1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	modifiedAt
 6	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	movies
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	movies_fts
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/OwnTVDatabase.kt	name
@@ -1082,17 +1113,23 @@
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	COALESCE(c.sourceId, m.sourceId, s.sourceId) AS sourceId,
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	DELETE FROM content_order WHERE
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	DELETE FROM content_order WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	DELETE FROM content_order WHERE profileId = :profileId AND mediaType = :type AND contextKey = :key AND itemId = :itemId AND modifiedAt <= :at
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	DELETE FROM content_order WHERE profileId = :profileId AND mediaType = :type AND contextKey = :key AND itemId = :itemId AND position = :position AND modifiedAt = :at
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	DELETE FROM content_order WHERE profileId = :profileId AND mediaType = :type AND itemId = :itemId AND (
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	FROM content_order o
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	INSERT INTO content_order (profileId, mediaType, contextKey, itemId, position, modifiedAt) VALUES (:profileId, :type, :key, :itemId, :position, :at) ON CONFLICT(profileId, mediaType, contextKey, itemId) DO UPDATE SET position = excluded.position, modifiedAt = excluded.modifiedAt WHERE excluded.modifiedAt >= content_order.modifiedAt
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	LEFT JOIN channels c ON o.mediaType = 'LIVE' AND o.itemId = c.id
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	LEFT JOIN movies m ON o.mediaType = 'MOVIE' AND o.itemId = m.id
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	LEFT JOIN series s ON o.mediaType = 'SERIES' AND o.itemId = s.id
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	SELECT * FROM content_order
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	SELECT * FROM content_order WHERE profileId = :profileId AND mediaType = :type AND itemId IN (:ids)
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	SELECT COALESCE(MAX(modifiedAt), 0) FROM content_order WHERE profileId = :profileId
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	SELECT DISTINCT contextKey FROM content_order WHERE profileId = :profileId AND mediaType = :type
 1	sql	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	SELECT EXISTS(SELECT 1 FROM content_order WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey AND itemId = :itemId)
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	SELECT modifiedAt FROM content_order WHERE profileId = :profileId AND mediaType = :type AND contextKey = :key AND itemId = :itemId
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	SELECT o.profileId AS profileId, o.mediaType AS mediaType, o.itemId AS itemId,
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	WHERE c.sourceId = :sourceId OR m.sourceId = :sourceId OR s.sourceId = :sourceId
-1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	o.contextKey AS contextKey, o.position AS position,
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/ContentOrderDao.kt	o.contextKey AS contextKey, o.position AS position, o.modifiedAt AS modifiedAt,
 1	sql	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	DELETE FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey AND itemId = :itemId AND addedAt <= :at
 1	sql	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	DELETE FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey AND itemId = :itemId AND position = :position AND addedAt = :addedAt
 4	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/CustomCategoryDao.kt	INNER JOIN custom_category_members m ON m.itemId = c.id AND m.profileId = :profileId AND m.mediaType = 'LIVE' AND m.contextKey = :contextKey
@@ -1568,8 +1605,8 @@
 2	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/SubtitleDao.kt	c.cachedPath AS cachedPath, c.openSubFileId AS openSubFileId, l.addedAt AS addedAt
 2	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/SubtitleDao.kt	c.releaseName AS releaseName, c.format AS format, c.fileName AS fileName,
 2	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/SubtitleDao.kt	l.mediaType AS mediaType, c.language AS language, c.languageName AS languageName,
-1	sql	core/src/main/java/tv/own/owntv/core/database/dao/TombstoneDao.kt	(SELECT id FROM user_data_tombstones WHERE kind NOT IN ('group', 'member') ORDER BY deletedAt DESC LIMIT :keep)
-1	sql	core/src/main/java/tv/own/owntv/core/database/dao/TombstoneDao.kt	DELETE FROM user_data_tombstones WHERE kind NOT IN ('group', 'member') AND id NOT IN
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/TombstoneDao.kt	(SELECT id FROM user_data_tombstones WHERE kind NOT IN ('group', 'member', 'order', 'fav') ORDER BY deletedAt DESC LIMIT :keep)
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/TombstoneDao.kt	DELETE FROM user_data_tombstones WHERE kind NOT IN ('group', 'member', 'order', 'fav') AND id NOT IN
 1	sql	core/src/main/java/tv/own/owntv/core/database/dao/TombstoneDao.kt	DELETE FROM user_data_tombstones WHERE profileId IN (:profileIds)
 1	sql	core/src/main/java/tv/own/owntv/core/database/dao/TombstoneDao.kt	INSERT INTO user_data_tombstones (profileId, kind, identity, deletedAt) VALUES (:profileId, :kind, :identity, :deletedAt)
 1	sql	core/src/main/java/tv/own/owntv/core/database/dao/TombstoneDao.kt	ON CONFLICT(profileId, kind, identity) DO UPDATE SET deletedAt = MAX(deletedAt, :deletedAt)
@@ -1578,6 +1615,7 @@
 1	sql	core/src/main/java/tv/own/owntv/core/database/dao/TombstoneDao.kt	SELECT * FROM user_data_tombstones WHERE kind = 'group' AND groupAppliedAt < deletedAt ORDER BY id LIMIT :limit
 1	sql	core/src/main/java/tv/own/owntv/core/database/dao/TombstoneDao.kt	SELECT * FROM user_data_tombstones WHERE profileId = :profileId AND kind = 'member' AND id > :afterId ORDER BY id LIMIT :limit
 1	sql	core/src/main/java/tv/own/owntv/core/database/dao/TombstoneDao.kt	SELECT COALESCE(MAX(deletedAt), 0) FROM user_data_tombstones WHERE profileId = :profileId AND kind = 'group'
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/TombstoneDao.kt	SELECT COALESCE(MAX(deletedAt), 0) FROM user_data_tombstones WHERE profileId = :profileId AND kind = :kind
 1	sql	core/src/main/java/tv/own/owntv/core/database/dao/TombstoneDao.kt	SELECT COUNT(*) FROM user_data_tombstones
 1	sql	core/src/main/java/tv/own/owntv/core/database/dao/TombstoneDao.kt	SELECT EXISTS(SELECT 1 FROM user_data_tombstones WHERE kind = 'group' AND groupAppliedAt < deletedAt)
 1	sql	core/src/main/java/tv/own/owntv/core/database/dao/TombstoneDao.kt	SELECT deletedAt FROM user_data_tombstones WHERE profileId = :profileId AND kind = :kind AND identity = :identity
@@ -1698,7 +1736,7 @@
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/entity/TvProviderEntities.kt	surface
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/entity/TvProviderEntities.kt	tv_provider_programs
 1	sql	core/src/main/java/tv/own/owntv/core/database/entity/UserDataEntities.kt	-1
-2	room-schema	core/src/main/java/tv/own/owntv/core/database/entity/UserDataEntities.kt	0
+3	room-schema	core/src/main/java/tv/own/owntv/core/database/entity/UserDataEntities.kt	0
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/entity/UserDataEntities.kt	__fav__
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/entity/UserDataEntities.kt	contentKey
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/entity/UserDataEntities.kt	content_order

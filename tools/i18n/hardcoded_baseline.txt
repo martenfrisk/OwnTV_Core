@@ -8,8 +8,6 @@
 3	core/src/main/java/tv/own/owntv/core/backup/BackupManager.kt	ctx
 1	core/src/main/java/tv/own/owntv/core/backup/BackupManager.kt	movedFrom
 4	core/src/main/java/tv/own/owntv/core/backup/BackupManager.kt	opensub_api_key_enc
-1	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	oid
-3	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	pos
 1	core/src/main/java/tv/own/owntv/core/catalog/ProviderCatalogMetadata.kt	2.0 Audio
 1	core/src/main/java/tv/own/owntv/core/catalog/ProviderCatalogMetadata.kt	5.1 Audio
 1	core/src/main/java/tv/own/owntv/core/catalog/ProviderCatalogMetadata.kt	7.1 Audio

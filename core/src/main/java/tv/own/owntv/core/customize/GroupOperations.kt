@@ -19,6 +19,8 @@ data class GroupEdit(
     val removeFromFavorites: Boolean = false,
     /** Explicit compatibility policy; TV's existing Remove action restores the provider origin. */
     val restoreProviderOnRemove: Boolean = false,
+    /** Stable selection keys captured by TV/browser adapters before opening an editor. */
+    val itemKeys: Map<Long, String> = emptyMap(),
 )
 
 data class GroupEditResult(val operationId: String, val selected: Int, val added: Int, val revision: Long)
@@ -42,7 +44,7 @@ data class GroupOperationProgress(
 enum class GroupMutationStage {
     MEMBERSHIP_WRITTEN, ORIGIN_WRITTEN, CHUNK_COMMITTED,
     GROUP_TOMBSTONE_RECORDED, GROUP_DEFINITION_WRITTEN, GROUP_CLEANUP_COMPLETE,
-    COMPOSITION_PLANNED,
+    COMPOSITION_PLANNED, ITEM_PLANNED, ITEM_DATA_WRITTEN, ITEM_CUSTOMIZATION_WRITTEN,
 }
 
 /** Definition edits affect user metadata; a custom-group delete always removes the whole group. */
@@ -83,3 +85,18 @@ data class GroupCompositionResult(
     val added: Int,
     val revision: Long,
 )
+
+/** Reset restores item names, global visibility, provider placement and manual order only. */
+enum class GroupItemAction { RENAME, FAVORITE, UNFAVORITE, RESET }
+
+data class GroupItemEdit(
+    val scope: GroupScope,
+    val action: GroupItemAction,
+    val itemIds: List<Long>,
+    val names: Map<Long, String?> = emptyMap(),
+    val expectedRevision: Long? = null,
+    /** Optional captured stable keys reject stale row IDs after a provider refresh. */
+    val itemKeys: Map<Long, String> = emptyMap(),
+)
+
+data class GroupItemResult(val operationId: String, val selected: Int, val revision: Long)

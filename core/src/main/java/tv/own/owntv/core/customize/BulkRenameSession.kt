@@ -97,7 +97,10 @@ class BulkRenameSession(
 
     // --- choice popup ---
     fun openBuilder() { _screen.value = Screen.BUILDER }
-    fun autoCleanup() { _rules.value = RenameRules.autoCleanupRules(); computePreview() }
+    fun autoCleanup() {
+        if (_screen.value != Screen.CHOICE) return
+        _rules.value = RenameRules.autoCleanupRules(); computePreview()
+    }
     fun requestRestore() { _screen.value = Screen.RESTORE_CONFIRM }
     fun confirmRestore() {
         val token = generation

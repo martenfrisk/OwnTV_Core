@@ -110,7 +110,7 @@ internal class GroupCompositionCommands(
             val src = identity.getLong("src")
             if (wholeGroup && src !in sources) return
             requireDomain(src in sources, GroupError.INVALID_SOURCE)
-            val key = CustomizeKeys.item(src, identity.optString("rid").takeIf { it.isNotEmpty() }, identity.getString("name"))
+            val key = identityKey(identity)
             if (wholeGroup && origin !in customIds && cust.movedFromOrigin[key] == origin) return
             if (profile.isKids && item?.categoryId != null) {
                 val prohibited = adult[item.categoryId] ?: AdultCategoryClassifier.isAdult(db.categoryDao().getById(item.categoryId)?.name).also { adult[item.categoryId] = it }
@@ -307,7 +307,6 @@ internal class GroupCompositionCommands(
     }
     private fun identity(type: MediaType, item: GroupCatalogItem): JSONObject = JSONObject().put("t", type.name)
         .put("src", item.sourceId).putOpt("rid", item.remoteId).put("name", item.name)
-    private fun identityKey(row: JSONObject): String = CustomizeKeys.item(row.getLong("src"),
-        row.optString("rid").takeIf { it.isNotEmpty() }, row.getString("name"))
+    private fun identityKey(row: JSONObject): String = userData.groupItemKey(row)
     private fun requireDomain(condition: Boolean, error: GroupError) { if (!condition) throw GroupEditException(error) }
 }

@@ -18,6 +18,25 @@ interface ContentOrderDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(rows: List<ContentOrderEntity>)
 
+    /** Timestamp-aware sync merge; equal legacy zero times retain incoming position policy. */
+    @Query("INSERT INTO content_order (profileId, mediaType, contextKey, itemId, position, modifiedAt) VALUES (:profileId, :type, :key, :itemId, :position, :at) ON CONFLICT(profileId, mediaType, contextKey, itemId) DO UPDATE SET position = excluded.position, modifiedAt = excluded.modifiedAt WHERE excluded.modifiedAt >= content_order.modifiedAt")
+    suspend fun merge(profileId: Long, type: MediaType, key: String, itemId: Long, position: Int, at: Long)
+
+    @Query("SELECT * FROM content_order WHERE profileId = :profileId AND mediaType = :type AND itemId IN (:ids)")
+    suspend fun recordsForIds(profileId: Long, type: MediaType, ids: List<Long>): List<ContentOrderEntity>
+
+    @Query("SELECT modifiedAt FROM content_order WHERE profileId = :profileId AND mediaType = :type AND contextKey = :key AND itemId = :itemId")
+    suspend fun modifiedAt(profileId: Long, type: MediaType, key: String, itemId: Long): Long?
+
+    @Query("SELECT COALESCE(MAX(modifiedAt), 0) FROM content_order WHERE profileId = :profileId")
+    suspend fun latestModifiedAt(profileId: Long): Long
+
+    @Query("DELETE FROM content_order WHERE profileId = :profileId AND mediaType = :type AND contextKey = :key AND itemId = :itemId AND modifiedAt <= :at")
+    suspend fun deleteIfOlderThan(profileId: Long, type: MediaType, key: String, itemId: Long, at: Long): Int
+
+    @Query("DELETE FROM content_order WHERE profileId = :profileId AND mediaType = :type AND contextKey = :key AND itemId = :itemId AND position = :position AND modifiedAt = :at")
+    suspend fun detachJournalRow(profileId: Long, type: MediaType, key: String, itemId: Long, position: Int, at: Long)
+
     @Query("DELETE FROM content_order WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey")
     suspend fun clearContext(profileId: Long, type: MediaType, contextKey: String)
 
@@ -50,7 +69,7 @@ interface ContentOrderDao {
      */
     @Query(
         "SELECT o.profileId AS profileId, o.mediaType AS mediaType, o.itemId AS itemId, " +
-            "o.contextKey AS contextKey, o.position AS position, " +
+            "o.contextKey AS contextKey, o.position AS position, o.modifiedAt AS modifiedAt, " +
             "COALESCE(c.sourceId, m.sourceId, s.sourceId) AS sourceId, " +
             "COALESCE(c.remoteId, m.remoteId, s.remoteId) AS remoteId, " +
             "COALESCE(c.name, m.name, s.name) AS name " +

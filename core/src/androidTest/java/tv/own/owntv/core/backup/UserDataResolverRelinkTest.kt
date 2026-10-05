@@ -13,6 +13,8 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import tv.own.owntv.core.database.OwnTVDatabase
+import tv.own.owntv.core.database.entity.ContentOrderEntity
+import tv.own.owntv.core.database.entity.CustomCategoryMemberEntity
 import tv.own.owntv.core.database.entity.EpisodeEntity
 import tv.own.owntv.core.database.entity.FavoriteEntity
 import tv.own.owntv.core.database.entity.MovieEntity
@@ -259,6 +261,56 @@ class UserDataResolverRelinkTest {
         db.movieDao().clearSource(sourceId)
         db.favoriteDao().purgeSnapshotOrphan(profileId, MediaType.MOVIE, movieId)
         assertEquals("the movie is gone — the favorite must go with it", 0, db.favoriteDao().getAllOnce().size)
+    }
+
+    @Test
+    fun organizationFollowsStableTitlesWhenRowIdsSwapAcrossSnapshotBatches() = runBlocking {
+        val count = 502
+        db.movieDao().insertAll((1..count).map { index ->
+            MovieEntity(id = index.toLong(), sourceId = sourceId, name = "Title $index", remoteId = "m-$index", streamUrl = "https://portal.test/$index")
+        })
+        for (index in 1..count) db.favoriteDao().add(FavoriteEntity(profileId = profileId, mediaType = MediaType.MOVIE, itemId = index.toLong(), addedAt = index.toLong()))
+        db.customCategoryDao().insertAll((1..count).map { CustomCategoryMemberEntity(profileId = profileId, mediaType = MediaType.MOVIE, contextKey = "custom:library", itemId = it.toLong(), position = it, addedAt = it.toLong()) })
+        db.contentOrderDao().insertAll((1..count).map { ContentOrderEntity(profileId = profileId, mediaType = MediaType.MOVIE, contextKey = "custom:library", itemId = it.toLong(), position = count - it, modifiedAt = it.toLong()) })
+        val snapshot = resolver.exportForSource(sourceId, setOf("fav", "member", "order"))
+        assertEquals(count * 3, snapshot.length())
+        db.movieDao().clearSource(sourceId)
+        db.movieDao().insertAll((1..count).map { index ->
+            MovieEntity(id = (count + 1 - index).toLong(), sourceId = sourceId, name = "Title $index", remoteId = "m-$index", streamUrl = "https://portal.test/$index")
+        })
+
+        resolver.relinkAfterSync(snapshot)
+
+        val favorites = db.favoriteDao().getAllOnce().associateBy { it.itemId }
+        val members = db.customCategoryDao().getAllOnce().associateBy { it.itemId }
+        val order = db.contentOrderDao().getAllOnce().associateBy { it.itemId }
+        assertEquals(count, favorites.size); assertEquals(count, members.size); assertEquals(count, order.size)
+        for (index in 1..count) {
+            val currentId = (count + 1 - index).toLong()
+            assertEquals(index.toLong(), favorites.getValue(currentId).addedAt)
+            assertEquals(index, members.getValue(currentId).position)
+            assertEquals(index.toLong(), members.getValue(currentId).addedAt)
+            assertEquals(count - index, order.getValue(currentId).position)
+            assertEquals(index.toLong(), order.getValue(currentId).modifiedAt)
+        }
+    }
+
+    @Test
+    fun relinkPreservesANewerOrderChoiceForTheTitleNowUsingTheOldId() = runBlocking {
+        val oldId = insertMovie("original", "Original")
+        db.contentOrderDao().insertAll(listOf(ContentOrderEntity(profileId = profileId, mediaType = MediaType.MOVIE, contextKey = "custom:library", itemId = oldId, position = 7, modifiedAt = 100)))
+        val snapshot = resolver.exportForSource(sourceId, setOf("order"))
+        db.movieDao().clearSource(sourceId)
+        db.movieDao().insertAll(listOf(MovieEntity(id = oldId, sourceId = sourceId, name = "Replacement", remoteId = "replacement", streamUrl = "https://portal.test/replacement")))
+        val newId = insertMovie("original", "Original")
+        db.contentOrderDao().merge(profileId, MediaType.MOVIE, "custom:library", oldId, 2, 200)
+
+        resolver.relinkAfterSync(snapshot)
+
+        val rows = db.contentOrderDao().getAllOnce().associateBy { it.itemId }
+        assertEquals(2, rows.size)
+        assertEquals(2, rows.getValue(oldId).position); assertEquals(200L, rows.getValue(oldId).modifiedAt)
+        assertEquals(7, rows.getValue(newId).position); assertEquals(100L, rows.getValue(newId).modifiedAt)
     }
 
     // --- helpers ---

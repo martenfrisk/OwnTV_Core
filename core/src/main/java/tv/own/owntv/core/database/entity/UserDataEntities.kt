@@ -99,6 +99,8 @@ data class ContentOrderEntity(
     val contextKey: String,
     val itemId: Long,
     val position: Int,
+    /** Legacy rows use zero; user edits carry a time so stale sync cannot undo reorder/reset. */
+    @ColumnInfo(defaultValue = "0") val modifiedAt: Long = System.currentTimeMillis(),
 ) {
     companion object {
         /** Sentinel [contextKey] for the per-section Favorites list. */

@@ -181,3 +181,39 @@ selection cases and five actual modal remote OK/Back, naming and focus-return ca
 repositories there are 1,536 unique passing cases. Lint remains zero errors/eight existing Core
 warnings and zero Player warnings, with no group-file findings. This is domain/modal evidence,
 not a full browse/playback, browser or hardware acceptance claim.
+
+
+## Item organization and manual-order events
+
+`GroupService.editItems` now handles validated item rename, favorite, remove favorite and reset.
+Its private `items` journal uses the same catalog coordination, 500-item chunks, replay/revision
+boundary and cancellation rules. Every selected item, source/profile/media/Kids scope, name and
+optional captured stable key validates before publication. Existing favorite placement is retained;
+unfavorite records durable facts, and explicit re-addition outranks the previous removal.
+
+Reset restores display names, global visibility, provider-origin placement and manual order in
+all selected-item contexts, including pending contexts. Custom memberships, favorites, guide
+matches/shifts, playback choices and other profiles are retained. Recovery detaches all exact saved
+old rows before attaching current IDs, so cross-chunk ID swaps do not steal metadata. Missing
+favorites remain pending against their original stable identities.
+
+Fork schema 50 adds `content_order.modifiedAt` through a guarded additive migration, preserving
+legacy positions with time zero. Sync merge accepts only an order at least as new as the current
+row. Order reset/removal facts reject older positions, including legacy records without time.
+Explicit Restore makes saved positions a new choice above the current clock; Merge respects the
+clock. Backup format 24 remains compatible. Favorite/order facts are excluded from the watch/resume
+pruning cap so large edits cannot be undone by an offline peer. Explicit-null remote IDs now use
+the existing name fallback consistently when pending composition identities are compared.
+
+TV item/range/bulk-name editors capture scope and stable keys; the TV review limit reads one extra
+row and refuses selections above 2,000, including automatic cleanup. Item names are editable in
+all three supported sections. The new range picker includes Hide, Show, Favorite, Remove favorite
+and organization Reset, using existing modal Back/focus restoration.
+
+This checkpoint passes Core 919 JVM/187 device, Player 252 JVM and TV 182 JVM/27 device cases:
+1,567 unique cases, excluding repeated focus/recovery runs. Core's 81 service cases include actual
+50,000-item rename recovery, 10,001-item favorite/removal recovery, reset/backup Merge vs Restore,
+late validation, captured-key reuse, independent import revision races and cancellation boundaries.
+Source relink and migration fixtures bring migration coverage to 18 cases. Core/Player lint stays
+zero errors with eight/zero existing warnings. Full item reorder, remaining browse adapters and
+full-screen/browser/playback/hardware acceptance remain outstanding.

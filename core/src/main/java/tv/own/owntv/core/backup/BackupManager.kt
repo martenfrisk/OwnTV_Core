@@ -1161,7 +1161,7 @@ class BackupManager(
                     val filtered = remapUserData(arr)
                     // Refused records were dropped for good, not queued — counting them is what let a
                     // restore report "N items restored" having reinstated none of them.
-                    val refused = userData.importAll(filtered)
+                    val refused = userData.importAll(filtered, restoreOrder = mode == ImportMode.RESTORE)
                     count += (filtered.length() - refused).coerceAtLeast(0)
                 }
             }
