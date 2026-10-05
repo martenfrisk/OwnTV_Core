@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="group_edit_progress">Editing groups · %1$d of %2$d</string>
+    <string name="group_edit_invalid_scope">This selection is no longer available. Refresh the list and try again.</string>
+    <string name="group_edit_conflict">The catalog changed. Refresh the list and try again.</string>
+    <string name="group_edit_limit">This group has reached its ordering limit.</string>
+    <string name="group_edit_recovery_failed">The group edit could not finish. Try again to resume it.</string>
+</resources>

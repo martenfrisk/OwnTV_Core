@@ -102,6 +102,37 @@ class UserDataResolver(
     /** The stable content key of a live row, or null when its content row is already gone. */
     suspend fun identityOf(type: MediaType, itemId: Long): JSONObject? = describe(type, itemId)
 
+    /** Resolve a journal's existing stable identity after a restart or catalog row-ID change. */
+    suspend fun currentItemId(type: MediaType, identity: JSONObject): Long? = locate(type, identity)
+
+    /** Same remote-ID/name fallback as locate, with bounded remote lookups during journal replay. */
+    suspend fun currentItemIds(type: MediaType, identities: List<JSONObject>): List<Long?> {
+        val remote = mutableMapOf<Pair<Long, String>, Long>()
+        for ((sourceId, records) in identities.groupBy { it.getLong("src") }) {
+            for (ids in records.mapNotNull { it.optStringOrNull("rid") }.distinct().chunked(500)) {
+                when (type) {
+                    MediaType.LIVE -> channelDao.findByRemoteIds(sourceId, ids).forEach { row -> row.remoteId?.let { remote[sourceId to it] = row.id } }
+                    MediaType.MOVIE -> movieDao.findByRemoteIds(sourceId, ids).forEach { row -> row.remoteId?.let { remote[sourceId to it] = row.id } }
+                    MediaType.SERIES -> seriesDao.findSeriesByRemoteIds(sourceId, ids).forEach { row -> row.remoteId?.let { remote[sourceId to it] = row.id } }
+                    MediaType.EPISODE -> Unit
+                }
+            }
+        }
+        return identities.map { record ->
+            record.optStringOrNull("rid")?.let { remote[record.getLong("src") to it] } ?: locate(type, record)
+        }
+    }
+
+    /** A journal may outlive its catalog row. Its validated stable identity still records removal. */
+    internal suspend fun rememberGroupRemoval(profileId: Long, identity: JSONObject, contextKey: String, at: Long) {
+        val record = JSONObject(identity.toString()).put("ctx", contextKey)
+        tombstoneDao.record(profileId, "member", canonicalIdentity(record), at)
+    }
+
+    internal suspend fun rememberFavoriteRemoval(profileId: Long, identity: JSONObject, at: Long) {
+        tombstoneDao.record(profileId, "fav", canonicalIdentity(identity), at)
+    }
+
     /**
      * Remembers that [profileId] deleted one row, so the deletion survives a sync.
      *

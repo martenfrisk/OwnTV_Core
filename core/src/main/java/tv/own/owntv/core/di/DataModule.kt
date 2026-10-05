@@ -180,8 +180,11 @@ val dataModule = module {
     // The one place a user deletion is written: it records the tombstone local sync needs and does
     // the delete in the same transaction. db, favoriteDao, historyDao, progressDao, customCategoryDao, userData
     single { tv.own.owntv.core.backup.UserDataWriter(get(), get(), get(), get(), get(), get()) }
+    single(createdAtStart = true) {
+        tv.own.owntv.core.customize.GroupService(androidContext(), get(), get(), get(), get()).also { it.startRecovery() }
+    }
     // sourceDao, syncManager, userDataResolver, channelDao, movieDao, seriesDao, categoryDao
-    single { SourceRepository(get(), get(), get(), get(), get(), get(), get(), playbackQuirkDao = get(), playbackPrefsDao = get()) }
+    single { SourceRepository(get(), get(), get(), get(), get(), get(), get(), playbackQuirkDao = get(), playbackPrefsDao = get(), groups = get()) }
     // settings, sourceRepository, channelDao, movieDao, seriesDao
     single { tv.own.owntv.core.nav.NavVisibility(get(), get(), get(), get(), get()) }
     single {
@@ -205,6 +208,7 @@ val dataModule = module {
             catalogBackfillDao = get(),
             catalogSyncScheduler = get(),
             catalogPriority = get(),
+            groups = get(),
         )
     }
     // App-wide "sync running" signal for the shell status pill (every sync funnels through SyncManager).
@@ -298,13 +302,13 @@ val dataModule = module {
             get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(),
             java.io.File(androidContext().filesDir, "backgrounds"),
             java.io.File(androidContext().filesDir, "subtitles"),
-            get(),
+            get(), groups = get(),
         )
     }
     // profileDao, sourceDao, settings, launcherIntegration, openSubtitlesAccounts — creating,
     // editing, switching and deleting a profile, shared by both apps' profile gates.
     single { tv.own.owntv.core.profile.ProfileAvatarStore(androidContext()) }
-    single { tv.own.owntv.core.profile.ProfileManager(get(), get(), get(), get(), get(), get()) }
+    single { tv.own.owntv.core.profile.ProfileManager(get(), get(), get(), get(), get(), get(), groups = get()) }
     // context, okHttpClient — in-app updates from GitHub Releases
     single { UpdateManager(androidContext(), get(), get()) }
     single { CatalogSyncScheduler(androidContext()) }

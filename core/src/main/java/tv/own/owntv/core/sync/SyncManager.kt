@@ -69,6 +69,7 @@ class SyncManager(
     private val catalogSyncScheduler: tv.own.owntv.core.sync.work.CatalogSyncScheduler,
     /** Which category the user is looking at, so the drain serves it first (plan N1c). */
     private val catalogPriority: CatalogPriority,
+    private val groups: tv.own.owntv.core.customize.GroupService? = null,
 ) {
     private val support = SyncSupport(categoryDao, channelDao, movieDao, seriesDao, sourceDao, customize, settings)
     private val xtreamSyncer = XtreamSyncer(xtream, bulkInsertHelper, support)
@@ -193,7 +194,8 @@ class SyncManager(
     ): StalkerSyncer.BackfillOutcome = withContext(Dispatchers.IO) {
         val source = sourceDao.getById(sourceId) ?: return@withContext StalkerSyncer.BackfillOutcome()
         if (source.type != SourceType.STALKER) return@withContext StalkerSyncer.BackfillOutcome()
-        stalkerSyncer.backfill(source, yieldToUser)
+        if (groups == null) stalkerSyncer.backfill(source, yieldToUser)
+        else groups.withCatalogSource(sourceId) { stalkerSyncer.backfill(source, yieldToUser) }
     }
 
     /**

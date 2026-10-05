@@ -26,7 +26,11 @@ class ProfileManager(
     private val launcherIntegration: LauncherIntegrationRepository,
     private val openSubtitlesAccounts: OpenSubtitlesAccountManager,
     private val avatars: ProfileAvatarStore,
+    private val groups: tv.own.owntv.core.customize.GroupService? = null,
 ) {
+
+    private suspend fun <T> stableGroups(block: suspend () -> T): T =
+        if (groups == null) block() else groups.withStableCatalog(changed = true, block = block)
 
     /** Make [id] the profile the app is showing. */
     suspend fun switchTo(id: Long) = settings.setActiveProfile(id)
@@ -37,7 +41,10 @@ class ProfileManager(
      * Add a profile. It inherits every source that already exists — one account, several viewers —
      * so it has something to watch immediately; favorites and history stay its own.
      */
-    suspend fun create(name: String, avatarId: Int, isKids: Boolean, pin: String?, fallbackName: String): Long {
+    suspend fun create(name: String, avatarId: Int, isKids: Boolean, pin: String?, fallbackName: String): Long =
+        stableGroups { createLocked(name, avatarId, isKids, pin, fallbackName) }
+
+    private suspend fun createLocked(name: String, avatarId: Int, isKids: Boolean, pin: String?, fallbackName: String): Long {
         val id = profileDao.insert(
             ProfileEntity(
                 name = name.ifBlank { fallbackName },
@@ -52,7 +59,10 @@ class ProfileManager(
     }
 
     /** Apply the editor's changes. [pin]: null keeps the existing PIN, "" removes it. */
-    suspend fun edit(profile: ProfileEntity, name: String, avatarId: Int, isKids: Boolean, pin: String?) {
+    suspend fun edit(profile: ProfileEntity, name: String, avatarId: Int, isKids: Boolean, pin: String?): Unit =
+        stableGroups { editLocked(profile, name, avatarId, isKids, pin) }
+
+    private suspend fun editLocked(profile: ProfileEntity, name: String, avatarId: Int, isKids: Boolean, pin: String?) {
         val pinHash = when {
             pin == null -> profile.pinHash
             pin.isEmpty() -> null
@@ -107,7 +117,9 @@ class ProfileManager(
      * was the one on screen. The last profile is never deleted — an app with none has nobody to
      * resolve any content for.
      */
-    suspend fun delete(profile: ProfileEntity) {
+    suspend fun delete(profile: ProfileEntity): Unit = stableGroups { deleteLocked(profile) }
+
+    private suspend fun deleteLocked(profile: ProfileEntity) {
         if (profileDao.count() <= 1) return
         val activeProfileId = settings.activeProfileId.first()
         val remainingProfileId = profileDao.getAllOnce().firstOrNull { it.id != profile.id }?.id

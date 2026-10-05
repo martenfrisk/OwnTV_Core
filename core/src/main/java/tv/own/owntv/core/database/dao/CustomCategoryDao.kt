@@ -39,6 +39,13 @@ interface CustomCategoryDao {
     @Query("SELECT itemId FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey AND itemId IN (:itemIds)")
     suspend fun existingItemIds(profileId: Long, type: MediaType, contextKey: String, itemIds: List<Long>): List<Long>
 
+    @Query("SELECT * FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey AND itemId IN (:itemIds)")
+    suspend fun membersForIds(profileId: Long, type: MediaType, contextKey: String, itemIds: List<Long>): List<CustomCategoryMemberEntity>
+
+    /** Recovery detaches only the exact old row; it never deletes a newer membership on a reused ID. */
+    @Query("DELETE FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey AND itemId = :itemId AND position = :position AND addedAt = :addedAt")
+    suspend fun detachJournalRow(profileId: Long, type: MediaType, contextKey: String, itemId: Long, position: Int, addedAt: Long)
+
     @Query("DELETE FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey")
     suspend fun clearContext(profileId: Long, type: MediaType, contextKey: String)
 

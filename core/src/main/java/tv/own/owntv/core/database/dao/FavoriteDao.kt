@@ -36,6 +36,13 @@ interface FavoriteDao {
     @Query("SELECT EXISTS(SELECT 1 FROM favorites WHERE profileId = :profileId AND mediaType = :type AND itemId = :itemId)")
     suspend fun exists(profileId: Long, type: MediaType, itemId: Long): Boolean
 
+    @Query("SELECT * FROM favorites WHERE profileId = :profileId AND mediaType = :type AND itemId IN (:itemIds)")
+    suspend fun recordsForIds(profileId: Long, type: MediaType, itemIds: List<Long>): List<FavoriteEntity>
+
+    /** Non-user cleanup of an exact old row during stable-identity journal recovery. */
+    @Query("DELETE FROM favorites WHERE profileId = :profileId AND mediaType = :type AND itemId = :itemId AND addedAt = :addedAt")
+    suspend fun detachJournalRow(profileId: Long, type: MediaType, itemId: Long, addedAt: Long)
+
     @Query("SELECT COUNT(*) FROM favorites WHERE profileId = :profileId AND mediaType = :type")
     fun count(profileId: Long, type: MediaType): Flow<Int>
 

@@ -7,6 +7,7 @@ import tv.own.owntv.core.database.dao.HistoryDao
 import tv.own.owntv.core.database.dao.ProgressDao
 import tv.own.owntv.core.database.transaction
 import tv.own.owntv.core.model.MediaType
+import org.json.JSONObject
 
 /**
  * The one place a user deletes their own data — an unfavorite, "Remove from history", clearing a
@@ -30,6 +31,27 @@ class UserDataWriter(
     private val customCategoryDao: CustomCategoryDao,
     private val userData: UserDataResolver,
 ) {
+
+    /** A durable group command retains stable identities even if its catalog rows disappear. */
+    internal suspend fun removeCustomCategoryMembers(
+        profileId: Long,
+        type: MediaType,
+        contextKey: String,
+        members: List<GroupUserDataRemoval>,
+    ) = db.transaction {
+        for (member in members) {
+            userData.rememberGroupRemoval(profileId, member.identity, contextKey, member.deletedAt)
+            member.itemId?.let { customCategoryDao.deleteItem(profileId, type, contextKey, it) }
+        }
+    }
+
+    /** The explicit TV Favorites-origin Move adapter also retains identities across restart. */
+    internal suspend fun removeGroupFavorites(profileId: Long, type: MediaType, members: List<GroupUserDataRemoval>) = db.transaction {
+        for (member in members) {
+            userData.rememberFavoriteRemoval(profileId, member.identity, member.deletedAt)
+            member.itemId?.let { favoriteDao.removeIfOlderThan(profileId, type, it, member.deletedAt) }
+        }
+    }
 
     /** Unfavorite one item. */
     suspend fun removeFavorite(profileId: Long, type: MediaType, itemId: Long) = db.transaction {
@@ -112,3 +134,5 @@ class UserDataWriter(
         userData.pruneTombstones()
     }
 }
+
+internal data class GroupUserDataRemoval(val identity: JSONObject, val itemId: Long?, val deletedAt: Long)

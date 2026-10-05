@@ -50,7 +50,17 @@ class BackupManager(
     private val subtitlesDir: File,
     /** Writes a restored profile picture into `filesDir/avatars`; the one thing that puts files there. */
     private val avatarStore: tv.own.owntv.core.profile.ProfileAvatarStore,
+    private val groups: tv.own.owntv.core.customize.GroupService? = null,
 ) {
+    // Recovery commands are not backup data: exports/imports first finish all accepted edits.
+    private suspend fun <T> stableGroups(changed: Boolean = false, block: suspend () -> Result<T>): Result<T> = try {
+        if (groups == null) block() else groups.withStableCatalog(changed, block)
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        Result.failure(failure)
+    }
+
     /** What a backup can contain; the user multi-selects these for export and restore. Profiles are
      *  NOT a section: every backup is inherently profile-based — the export flow's first step picks
      *  which profiles to include (PIN-verified for locked non-active ones), and the ticked profiles'
@@ -81,6 +91,16 @@ class BackupManager(
      * caller is expected to have warned the user that passwords must be re-entered after restore.
      */
     suspend fun export(
+        folder: File,
+        sections: Set<Section> = Section.entries.toSet(),
+        backupPassword: String? = null,
+        profileIds: Set<Long>? = null,
+        recordAsBackup: Boolean = true,
+    ): Result<String> = stableGroups {
+        exportLocked(folder, sections, backupPassword, profileIds, recordAsBackup)
+    }
+
+    private suspend fun exportLocked(
         folder: File,
         sections: Set<Section> = Section.entries.toSet(),
         backupPassword: String? = null,
@@ -791,6 +811,16 @@ class BackupManager(
      * plaintext passwords import exactly as before (no `crypto` block ⇒ strings treated as plaintext).
      */
     suspend fun import(
+        file: File,
+        sections: Set<Section> = Section.entries.toSet(),
+        backupPassword: String? = null,
+        mode: ImportMode = ImportMode.RESTORE,
+        deviceSettings: Boolean = false,
+    ): Result<ImportSummary> = stableGroups(changed = true) {
+        importLocked(file, sections, backupPassword, mode, deviceSettings)
+    }
+
+    private suspend fun importLocked(
         file: File,
         sections: Set<Section> = Section.entries.toSet(),
         backupPassword: String? = null,

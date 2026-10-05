@@ -32,11 +32,12 @@ Copy only adds destination membership. Upstream Move also suppresses a provider 
 `UserDataWriter` (to retain local-sync deletion markers). Global hiding is the separate
 `hiddenItems` map. The TV's existing “keep in original” option selects Copy semantics.
 
-This DAO primitive does not validate custom group definitions, profile access, source permissions,
-or resolve stale caller-supplied item IDs. A domain-facing management service must do so before
-exposing these operations to a browser. Provider Move still crosses Room and DataStore; durable
-bulk Move coordination and recovery remain separate work. This change does not claim atomicity
-across those stores or implement the complete group-management milestone.
+The DAO remains an internal primitive. `GroupService` is the shared mutation boundary for TV and
+future management clients; it validates current custom definitions, profile/source/type scope,
+Kids restrictions, item identities and source membership. Optional expected revisions detect
+conflicting clients. TV Move/Copy/Remove/global Hide and item-list range Hide/Unhide use it.
+Move from All/search/recent derives each item's actual provider origin. Ordinary Move preserves
+favorites; only the explicit legacy Favorites-origin TV adapter removes them.
 
 `CustomCategoryMembershipTest` has 16 passing cases against production `BundledSQLiteDriver`, covering idempotent
 Copy, several custom groups, provider preservation, profile/source/media-type scope, resync row-ID changes,
@@ -45,5 +46,45 @@ and rollback at position overflow. It also covers scoped deletion markers, stale
 deletions, explicit legacy restore, and addition-time preservation across resync/backup.
 `OwnTVDatabaseMigrationTest` verifies populated schema 47 upgrades and old migration paths. Run on a disposable test target, never a populated TV.
 
-Validation: Core and Player Core unit tests pass (914 + 252); Core device suite passes all 97
-cases, including the 16 migration cases. Core/Player Core lint passes with zero errors.
+Baseline validation at the membership-foundation commit: 914 + 252 unit cases and 97 Core
+device cases passed, including 16 migration cases; lint had zero errors.
+
+
+## Durable commands and catalog coordination
+
+`GroupEdit` accepts a `GroupScope`, action, item IDs and optional destination/origin/revision.
+The service deduplicates selections in first-occurrence order, validates the entire selection in
+500-row credential-free projections, then saves private AtomicFile chunks and a manifest before
+changing canonical data. New destination positions and addition/removal times are part of that
+intent. Copy preserves existing membership positions/times. Invalid late batches publish nothing.
+
+The journal at `filesDir/group-operations` bridges Room and DataStore. It contains identity and
+ordering metadata, never stream URLs/passwords. Startup and the next command recover it.
+Completed chunks also replay after a restart: their catalog row IDs can change or be reused.
+Recovery first detaches matching old rows across all chunks, then reattaches every desired
+membership through the existing remote-ID/name resolver. This preserves earlier destination
+members and handles ID swaps across batch boundaries. Exact saved position/time guards protect
+newer rows; unresolved identities go through the existing pending-user-data mechanism. Custom
+membership and explicit Favorites-origin removals retain stable deletion markers through
+UserDataWriter. Missing/corrupt journal files retain the command and fail closed.
+
+Group mutations serialize. SourceRepository refresh/update/delete and Stalker background backfill
+hold per-source catalog locks; unrelated imports remain parallel. Backup export/import, profile
+changes and TV group-definition creation/deletion finish accepted commands before reading or
+changing their scope. The journal is recovery metadata, not canonical backup data; schema 48 and
+backup format 24 remain unchanged. Catalog revisions persist across restart and advance after
+changes, including partial failed/cancelled imports. Screen cancellation remains possible during
+planning, while published commands finish before releasing their locks.
+
+This service does not complete the full group milestone: durable definition deletion, complete
+CRUD/duplicate/merge/split, bulk naming/reordering/reset, remaining TV editor work and the remote
+management API still require implementation and acceptance. It is also not a catalog/Guide browse,
+playback, low-memory or representative-hardware performance claim.
+
+
+`GroupServiceTest` adds 26 device cases against the real stores. The complete Core device suite
+now passes 123 cases, including the original 16 membership and 16 migration cases. Core/Player
+Core JVM counts remain 914/252; TV JVM/device counts remain 177/19. Fault-injection repeats are
+excluded from these unique counts. The 50,000-item cases contain actual catalog rows and verify
+Copy ordering and provider Move's independent suppression; they are domain-operation tests,
+not full browse/playback performance acceptance.

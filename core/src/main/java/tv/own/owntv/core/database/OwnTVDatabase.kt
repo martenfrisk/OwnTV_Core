@@ -141,6 +141,7 @@ abstract class OwnTVDatabase : RoomDatabase() {
     abstract fun playbackPrefsDao(): PlaybackPrefsDao
     abstract fun playbackQuirkDao(): tv.own.owntv.core.database.dao.PlaybackQuirkDao
     abstract fun customCategoryDao(): CustomCategoryDao
+    abstract fun groupCatalogDao(): tv.own.owntv.core.database.dao.GroupCatalogDao
     abstract fun seriesSortOrderDao(): SeriesSortOrderDao
     abstract fun tombstoneDao(): TombstoneDao
     abstract fun tvProviderProgramDao(): TvProviderProgramDao

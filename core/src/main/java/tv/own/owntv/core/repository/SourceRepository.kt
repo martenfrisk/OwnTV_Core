@@ -28,6 +28,7 @@ class SourceRepository(
     private val categoryDao: tv.own.owntv.core.database.dao.CategoryDao,
     private val playbackQuirkDao: tv.own.owntv.core.database.dao.PlaybackQuirkDao,
     private val playbackPrefsDao: tv.own.owntv.core.database.dao.PlaybackPrefsDao,
+    private val groups: tv.own.owntv.core.customize.GroupService? = null,
 ) {
     fun observeSources(profileId: Long): Flow<List<SourceEntity>> = sourceDao.observeForProfile(profileId)
 
@@ -74,10 +75,10 @@ class SourceRepository(
         ),
     )
 
-    private suspend fun addAndLink(profileId: Long, source: SourceEntity): SourceEntity {
+    private suspend fun addAndLink(profileId: Long, source: SourceEntity): SourceEntity = stableCatalog {
         val id = sourceDao.insert(source)
         sourceDao.link(ProfileSourceCrossRef(profileId = profileId, sourceId = id))
-        return source.copy(id = id)
+        source.copy(id = id)
     }
 
     /**
@@ -85,7 +86,7 @@ class SourceRepository(
      * sound-only marks, audio delays, and every profile's zoom, volume and track choices. Those rows
      * are keyed by content, not by a foreign key, so without this they outlived the playlist forever.
      */
-    suspend fun deleteSource(source: SourceEntity) {
+    suspend fun deleteSource(source: SourceEntity): Unit = catalog(source.id) {
         sourceDao.delete(source)
         runCatching { playbackQuirkDao.deleteBySource(source.id) }
         runCatching { playbackPrefsDao.deleteBySource(source.id) }
@@ -98,7 +99,7 @@ class SourceRepository(
      * would duplicate rows on the next sync (a never-synced source takes the insertFresh path,
      * which assumes empty tables). Content before categories — same order the syncers clear in.
      */
-    suspend fun clearSourceContent(sourceId: Long) {
+    suspend fun clearSourceContent(sourceId: Long): Unit = catalog(sourceId) {
         channelDao.clearSource(sourceId)
         movieDao.clearSource(sourceId)
         seriesDao.clearSource(sourceId) // seasons/episodes cascade
@@ -106,7 +107,7 @@ class SourceRepository(
             .forEach { categoryDao.clear(sourceId, it) }
     }
 
-    suspend fun updateSource(source: SourceEntity) = sourceDao.update(source)
+    suspend fun updateSource(source: SourceEntity) = catalog(source.id) { sourceDao.update(source) }
 
     /**
      * [onProgress] is deliberately **last**: Kotlin binds a trailing lambda to the final parameter,
@@ -121,7 +122,7 @@ class SourceRepository(
         /** User-requested clean resync: allows this run to remove titles the provider no longer lists. */
         forcePrune: Boolean = false,
         onProgress: (ImportStage) -> Unit,
-    ): SyncResult {
+    ): SyncResult = catalog(source.id) {
         val startedAt = SystemClock.elapsedRealtime()
         Log.i(TAG, "sync wrapper start sourceId=${source.id} type=${source.type} contentTypes=$contentTypes")
         // Snapshot favorites/history/resume with stable keys BEFORE the sync clears content (their ids
@@ -159,7 +160,7 @@ class SourceRepository(
                 .onFailure { Log.w(TAG, "episode cache invalidate failed sourceId=${source.id}", it) }
         }
         Log.i(TAG, "sync wrapper end sourceId=${source.id} result=${result.name()} totalMs=${SystemClock.elapsedRealtime() - startedAt}")
-        return result
+        result
     }
 
     fun getLastSyncStats(sourceId: Long): tv.own.owntv.core.sync.SyncRunStats? =
@@ -182,6 +183,12 @@ class SourceRepository(
         }
         return "types=$counts"
     }
+
+    private suspend fun <T> catalog(sourceId: Long, block: suspend () -> T): T =
+        if (groups == null) block() else groups.withCatalogSource(sourceId, block)
+
+    private suspend fun <T> stableCatalog(block: suspend () -> T): T =
+        if (groups == null) block() else groups.withStableCatalog(changed = true, block = block)
 
     private companion object {
         const val TAG = "SourceRepository"

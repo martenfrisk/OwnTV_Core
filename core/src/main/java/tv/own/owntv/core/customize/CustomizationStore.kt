@@ -34,9 +34,10 @@ object CustomizeKeys {
 
     fun isCustom(key: String): Boolean = key.startsWith(CUSTOM_PREFIX)
     fun category(c: CategoryEntity): String = "${c.sourceId}:${c.remoteId ?: c.name}"
-    fun channel(ch: ChannelEntity): String = "${ch.sourceId}:${ch.remoteId ?: ch.name}"
-    fun movie(m: MovieEntity): String = "${m.sourceId}:${m.remoteId ?: m.name}"
-    fun series(s: SeriesEntity): String = "${s.sourceId}:${s.remoteId ?: s.name}"
+    fun item(sourceId: Long, remoteId: String?, name: String): String = "$sourceId:${remoteId ?: name}"
+    fun channel(ch: ChannelEntity): String = item(ch.sourceId, ch.remoteId, ch.name)
+    fun movie(m: MovieEntity): String = item(m.sourceId, m.remoteId, m.name)
+    fun series(s: SeriesEntity): String = item(s.sourceId, s.remoteId, s.name)
 
     /** The part of an item key after the source id: the provider's own id, or the name as a fallback. */
     fun tailOf(key: String): String = key.substringAfter(':', "")
