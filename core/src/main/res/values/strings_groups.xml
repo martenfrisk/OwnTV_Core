@@ -6,4 +6,12 @@
     <string name="group_edit_limit">This group has reached its ordering limit.</string>
     <string name="group_edit_recovery_failed">The group edit could not finish. Try again to resume it.</string>
     <string name="group_edit_invalid_name">Enter a group name between 1 and 120 characters.</string>
+    <string name="group_duplicate">Duplicate group</string>
+    <string name="group_duplicate_name">%1$s copy</string>
+    <string name="group_merge">Merge groups</string>
+    <string name="group_merge_hint">Choose the first group with Merge, then choose the last group to merge the range. Back cancels the selection.</string>
+    <string name="group_split">Split into a new group</string>
+    <string name="group_copy_members">Copy members</string>
+    <string name="group_move_members">Move members</string>
+    <string name="group_composition_hint">Copy keeps items in their original groups. Move removes them from the selected groups. Other groups, favorites and hidden-item settings stay the same.</string>
 </resources>

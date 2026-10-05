@@ -80,6 +80,13 @@ class UserDataResolver(
     internal suspend fun recordGroupDeletion(profileId: Long, type: MediaType, key: String, at: Long) =
         groupDeletions.record(profileId, type, key, at)
 
+    internal suspend fun pendingGroupRecords(profileId: Long, type: MediaType): List<JSONObject> = pendingMutations.withLock {
+        val pending = context.pendingStore.data.first()[PENDING_KEY]?.let { JSONArray(it) } ?: JSONArray()
+        (0 until pending.length()).map { pending.getJSONObject(it) }.filter {
+            it.optLong("p", -1) == profileId && it.optString("t") == type.name && it.optString("kind") in setOf("member", "order")
+        }
+    }
+
     /** Validate event-time overflow before a definition command becomes durable. */
     internal suspend fun latestGroupMemberTime(profileId: Long, type: MediaType, keys: List<String>): Long = pendingMutations.withLock {
         var latest = 0L

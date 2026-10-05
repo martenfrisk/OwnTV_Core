@@ -77,7 +77,7 @@ changes, including partial failed/cancelled imports. Screen cancellation remains
 planning, while published commands finish before releasing their locks.
 
 The original service checkpoint did not complete the full group milestone. Definition edits are
-implemented below; duplicate/merge/split composition, remaining TV editor work and the remote
+implemented below; composition follows in a later section, while remaining TV editor work and the remote
 management API still require implementation and acceptance. It is also not a catalog/Guide browse,
 playback, low-memory or representative-hardware performance claim.
 
@@ -127,8 +127,8 @@ captures selected rows, accepted names and persistence callbacks before queued w
 obsolete previews cannot reopen or replace a dismissed/new editor. The provider/catalog and
 playback paths remain separate from these user-data edits.
 
-Duplicate/merge/split composition, remaining item/group actions and their TV/browser editors still
-belong to the full-plan milestone. Automated persistence tests do not establish browse/Guide,
+Remaining item/group actions and the complete TV/browser editors still belong to the full-plan
+milestone. Composition is described below. Automated persistence tests do not establish browse/Guide,
 playback, hardware or D-pad golden acceptance.
 
 
@@ -139,3 +139,45 @@ cleanup boundary; backup tests use actual Customize-only and deletion-only files
 remapping, stale Merge and explicit Restore. The 10,001-member deletion retains every removal fact
 past the watch-history cap. Missing identities in retired groups are refused instead of left pending.
 Lint remains zero errors/eight existing Core warnings and zero Player warnings; no new group findings.
+
+## Duplicate, merge and split composition
+
+`GroupService.compose` accepts `GroupCompositionEdit`: Copy/Move, immutable profile/media/source
+scope, optional expected revision, and destination parts containing ordered `GroupSelection`s.
+`GroupDestination` selects an existing custom UUID or supplies a validated new name. A null item
+selection traverses the complete group in bounded credential-free keyset pages; explicit IDs form
+split partitions. New definitions and every member selection validate and journal before any
+canonical mutation. Invalid late parts publish nothing. Copy may repeat an identity in different
+targets; Move rejects that ambiguous assignment. Overlap into one target deduplicates, retaining
+existing member positions/times. Empty groups can duplicate, and existing-target no-ops do not
+advance the revision.
+
+Provider selection honors origin suppression and stored ordering. Custom selection honors profile
+links and source filters, merging temporarily missing pending identities into their saved manual
+or membership positions. Reappearing content uses the existing stable identity resolver. Member
+chunks retain each selected origin so Move removes every selected custom membership without
+touching other custom groups, favorites or global hides. A provider Move changes only its view
+suppression; provider rows stay unchanged.
+
+The composition manifest replays definition and membership chunks under the existing catalog
+locks. A restart reuses newly created UUIDs and first detaches matching saved old-ID memberships
+across every chunk before resolving current IDs. This handles reused IDs and cross-chunk swaps.
+Accepted compositions finish after screen cancellation and advance one revision. The journal
+files remain private recovery metadata, excluded from backup; schema 49 and backup format 24 do
+not change for composition.
+
+TV rows now expose Duplicate, an anchored Merge range, and Split for a selected item/range into a
+new group. Merge freezes scope/order on its first press. The modal chooses Copy/Move, then a name;
+remote Back cancels. The shared domain can submit several split parts atomically, while the TV
+currently creates one partition per prompt. Browser editors, the full selection/focus matrix,
+remaining bulk actions and representative-device playback acceptance remain outstanding.
+
+Composition checkpoint verification: Core device suite passes 160 cases, including 62 GroupService
+cases (21 new composition cases), 16 membership and 17 migration cases. Added cases cover overlap,
+multi-part validation, source/profile/media/Kids scope, empty/no-op operations, missing member/manual
+order, reused IDs and cross-chunk swaps, planning/accepted-editor cancellation, no-op revision races and 50,000 real catalog rows.
+Core/Player JVM suites remain 918/252; TV passes 182 JVM and 24 device cases, including five merge
+selection cases and five actual modal remote OK/Back, naming and focus-return cases. Across both
+repositories there are 1,536 unique passing cases. Lint remains zero errors/eight existing Core
+warnings and zero Player warnings, with no group-file findings. This is domain/modal evidence,
+not a full browse/playback, browser or hardware acceptance claim.

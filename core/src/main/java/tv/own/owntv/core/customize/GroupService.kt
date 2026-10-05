@@ -50,6 +50,7 @@ class GroupService(
     private val afterStep: suspend (GroupMutationStage, Int) -> Unit = { _, _ -> },
 ) {
     private val journal = GroupOperationJournal(journalDirectory)
+    private val compositions = GroupCompositionCommands(db, customize, userData, writer, journal, afterStep, ::resolveRows)
     private val mutations = Mutex()
     private val stateMutex = Mutex()
     private val sourceLocks = ConcurrentHashMap<Long, Mutex>()
@@ -122,6 +123,74 @@ class GroupService(
         throw cancelled
     } catch (failure: Exception) {
         Result.failure(failure)
+    }
+
+    suspend fun composeFromTv(edit: GroupCompositionEdit): Result<GroupCompositionResult> = try {
+        Result.success(compose(edit))
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        Result.failure(failure)
+    }
+
+    suspend fun compose(edit: GroupCompositionEdit): GroupCompositionResult = try {
+        withContext(Dispatchers.IO) {
+            mutations.withLock {
+                recoverLocked()
+                val sources = compositions.sources(edit.scope)
+                withSources(sources.toList()) {
+                    val revision = revision()
+                    checkDomain(edit.expectedRevision == null || edit.expectedRevision == revision, GroupError.REVISION_CONFLICT)
+                    val id = UUID.randomUUID().toString()
+                    val plan = try {
+                        compositions.prepare(id, edit, sources).also { plan ->
+                            afterStep(GroupMutationStage.COMPOSITION_PLANNED, 0)
+                            stateMutex.withLock {
+                                val state = journal.readState()
+                                checkDomain(edit.expectedRevision == null || edit.expectedRevision == state.getLong("revision"), GroupError.REVISION_CONFLICT)
+                                if (plan.changed) {
+                                    state.put("pending", plan.manifest)
+                                    journal.writeState(state)
+                                }
+                            }
+                        }
+                    } catch (failure: Throwable) {
+                        val published = stateMutex.withLock { journal.readState().optJSONObject("pending")?.optString("id") == id }
+                        if (!published) journal.removeOperation(id)
+                        throw failure
+                    }
+                    if (!plan.changed) {
+                        journal.removeOperation(id)
+                        return@withSources GroupCompositionResult(id, plan.destinations, plan.selected, 0, revision())
+                    }
+                    val next = withContext(NonCancellable) { replayComposition(plan.manifest, false) }
+                    GroupCompositionResult(id, plan.destinations, plan.selected, plan.added, next)
+                }
+            }
+        }
+    } catch (cancelled: CancellationException) {
+        _progress.value = GroupOperationProgress(revision = _progress.value.revision)
+        throw cancelled
+    } catch (failure: Exception) {
+        _progress.value = GroupOperationProgress(revision = _progress.value.revision,
+            failure = (failure as? GroupEditException)?.code ?: GroupError.JOURNAL_UNAVAILABLE)
+        throw failure
+    }
+
+    private suspend fun replayComposition(pending: JSONObject, recovering: Boolean): Long {
+        val id = pending.getString("id")
+        val total = pending.getInt("total")
+        _progress.value = GroupOperationProgress(id, total = total, revision = revision())
+        compositions.replay(pending, recovering) { next, completed ->
+            val revision = stateMutex.withLock {
+                val state = journal.readState()
+                state.getJSONObject("pending").put("next", next)
+                journal.writeState(state)
+                state.getLong("revision")
+            }
+            _progress.value = GroupOperationProgress(id, completed, total, revision)
+        }
+        return finishOperation(id)
     }
 
     suspend fun editGroups(edit: GroupDefinitionEdit): GroupDefinitionResult = try {
@@ -391,7 +460,11 @@ class GroupService(
             val sources = pending.getJSONArray("sources")
             withSources((0 until sources.length()).map { sources.getLong(it) }) {
                 withContext(NonCancellable) {
-                    if (pending.optString("domain") == "groups") replayGroups(pending) else replay(pending)
+                    when (pending.optString("domain")) {
+                        "groups" -> replayGroups(pending)
+                        "composition" -> replayComposition(pending, true)
+                        else -> replay(pending)
+                    }
                 }
             }
         }

@@ -352,6 +352,316 @@ class GroupServiceTest {
         assertFalse(resolver.wouldAdd(profile, "order", records.getJSONObject(1)))
     }
 
+    private fun composition(action: GroupAction, target: GroupDestination, vararg selections: GroupSelection) =
+        GroupCompositionEdit(GroupScope(profile, MediaType.LIVE), action, listOf(GroupCompositionPart(target, selections.toList())))
+
+    @Test fun duplicatePreservesStoredOrderAndProviderVisibilityWithoutMutatingFavorites() = runBlocking {
+        service.edit(edit(GroupAction.COPY, listOf(3, 1, 2)))
+        db.contentOrderDao().insertAll(listOf(ContentOrderEntity(profileId = profile, mediaType = MediaType.LIVE, contextKey = a, itemId = 2, position = 0)))
+        db.favoriteDao().add(FavoriteEntity(profileId = profile, mediaType = MediaType.LIVE, itemId = 1))
+        val before = service.revision()
+        val result = service.compose(composition(GroupAction.COPY, GroupDestination(name = "Duplicate"), GroupSelection(a)))
+        val target = result.destinationIds.single()
+        assertEquals(3, result.added); assertEquals(3, result.selected); assertEquals(before + 1, result.revision)
+        assertEquals(listOf(2L, 3L, 1L), db.customCategoryDao().snapshotChannels(profile, target, listOf(source), 10).map { it.id })
+        assertEquals(setOf(a, target), db.customCategoryDao().contextsOf(profile, MediaType.LIVE, 1).toSet())
+        assertTrue(custom().movedFromOrigin.isEmpty()); assertTrue(db.favoriteDao().exists(profile, MediaType.LIVE, 1))
+        assertEquals(category, db.channelDao().getById(1)!!.categoryId)
+    }
+
+    @Test fun mergeCopyDeduplicatesOverlapAndPreservesExistingDestinationPositions() = runBlocking {
+        service.edit(edit(GroupAction.COPY, listOf(1, 2)))
+        service.edit(edit(GroupAction.COPY, listOf(2, 3), target = b))
+        service.edit(edit(GroupAction.COPY, listOf(2), target = c))
+        val previous = db.customCategoryDao().getAllOnce().single { it.contextKey == c }
+        val result = service.compose(composition(GroupAction.COPY, GroupDestination(groupId = c), GroupSelection(a), GroupSelection(b)))
+        assertEquals(2, result.added); assertEquals(3, result.selected)
+        assertEquals(previous, db.customCategoryDao().getAllOnce().single { it.contextKey == c && it.itemId == 2L })
+        assertEquals(listOf(2L, 1L, 3L), db.customCategoryDao().snapshotChannels(profile, c, listOf(source), 10).map { it.id })
+        assertTrue(db.customCategoryDao().exists(profile, MediaType.LIVE, a, 2)); assertTrue(db.customCategoryDao().exists(profile, MediaType.LIVE, b, 2))
+        val revision = service.revision()
+        assertEquals(0, service.compose(composition(GroupAction.COPY, GroupDestination(groupId = c), GroupSelection(a), GroupSelection(b))).added)
+        assertEquals(revision, service.revision())
+    }
+
+    @Test fun mergeMoveRemovesEverySelectedCustomOriginAndKeepsUnselectedMembershipAndFavorite() = runBlocking {
+        service.edit(edit(GroupAction.COPY, listOf(1, 2)))
+        service.edit(edit(GroupAction.COPY, listOf(2, 3), target = b))
+        service.edit(edit(GroupAction.COPY, listOf(2), target = c))
+        db.favoriteDao().add(FavoriteEntity(profileId = profile, mediaType = MediaType.LIVE, itemId = 2))
+        val result = service.compose(composition(GroupAction.MOVE, GroupDestination(name = "Merged"), GroupSelection(a), GroupSelection(b)))
+        val target = result.destinationIds.single()
+        assertEquals(setOf(c, target), db.customCategoryDao().contextsOf(profile, MediaType.LIVE, 2).toSet())
+        assertFalse(db.customCategoryDao().exists(profile, MediaType.LIVE, a, 1)); assertFalse(db.customCategoryDao().exists(profile, MediaType.LIVE, b, 3))
+        assertEquals(4, resolver.exportTombstones(setOf("member")).length())
+        assertTrue(db.favoriteDao().exists(profile, MediaType.LIVE, 2)); assertTrue(custom().movedFromOrigin.isEmpty())
+        assertTrue(custom().customCategories.any { it.id == a }); assertTrue(custom().customCategories.any { it.id == b })
+    }
+
+    @Test fun splitCreatesSeveralGroupsInOneRevisionAndRejectsAnInvalidLatePartition() = runBlocking {
+        val before = custom(); val revision = service.revision()
+        val valid = GroupCompositionPart(GroupDestination(name = "First"), listOf(GroupSelection(origin, listOf(1, 2))))
+        val invalid = GroupCompositionPart(GroupDestination(name = "Second"), listOf(GroupSelection(origin, listOf(999))))
+        val scope = GroupScope(profile, MediaType.LIVE)
+        assertTrue(service.composeFromTv(GroupCompositionEdit(scope, GroupAction.MOVE, listOf(valid, invalid))).isFailure)
+        assertEquals(before, custom()); assertEquals(revision, service.revision()); assertTrue(db.customCategoryDao().getAllOnce().isEmpty())
+        val second = invalid.copy(selections = listOf(GroupSelection(origin, listOf(3))))
+        val result = service.compose(GroupCompositionEdit(scope, GroupAction.MOVE, listOf(valid, second)))
+        assertEquals(revision + 1, result.revision); assertEquals(2, result.destinationIds.size)
+        assertEquals(listOf(1L, 2L), db.customCategoryDao().snapshotChannels(profile, result.destinationIds[0], listOf(source), 10).map { it.id })
+        assertEquals(listOf(3L), db.customCategoryDao().snapshotChannels(profile, result.destinationIds[1], listOf(source), 10).map { it.id })
+        assertEquals(setOf(origin), custom().movedFromOrigin.values.toSet()); assertTrue(custom().hiddenItems.isEmpty())
+    }
+
+    @Test fun conflictingMovePartitionsFailBeforeCreatingAnyGroup() = runBlocking {
+        val parts = listOf("One", "Two").map { GroupCompositionPart(GroupDestination(name = it), listOf(GroupSelection(origin, listOf(1)))) }
+        try { service.compose(GroupCompositionEdit(GroupScope(profile, MediaType.LIVE), GroupAction.MOVE, parts)); fail("Overlapping Move accepted") }
+        catch (failure: GroupEditException) { assertEquals(GroupError.INVALID_ITEM, failure.code) }
+        assertEquals(3, custom().customCategories.size); assertTrue(custom().movedFromOrigin.isEmpty())
+        assertEquals(2, service.compose(GroupCompositionEdit(GroupScope(profile, MediaType.LIVE), GroupAction.COPY, parts)).added)
+        assertEquals(2, db.customCategoryDao().contextsOf(profile, MediaType.LIVE, 1).size)
+    }
+
+    @Test fun providerDuplicateSkipsSuppressedMembersAndFilteredCustomDuplicateKeepsOnlySelectedPlaylists() = runBlocking {
+        service.edit(edit(GroupAction.MOVE, from = origin))
+        val duplicate = service.compose(composition(GroupAction.COPY, GroupDestination(name = "Provider copy"), GroupSelection(origin))).destinationIds.single()
+        assertEquals(listOf(2L, 3L), db.customCategoryDao().snapshotChannels(profile, duplicate, listOf(source), 10).map { it.id })
+        channels(4..4, otherSource)
+        service.edit(edit(GroupAction.COPY, listOf(4), target = a))
+        val filtered = service.compose(composition(GroupAction.COPY, GroupDestination(name = "Filtered"), GroupSelection(a))
+            .copy(scope = GroupScope(profile, MediaType.LIVE, setOf(otherSource)))).destinationIds.single()
+        assertEquals(listOf(4L), db.customCategoryDao().snapshotChannels(profile, filtered, listOf(source, otherSource), 10).map { it.id })
+        assertTrue(db.customCategoryDao().exists(profile, MediaType.LIVE, a, 1))
+    }
+
+    @Test fun compositionRecoversDefinitionsAndMembershipAtEveryCrossStoreBoundary() = runBlocking {
+        for (stage in listOf(GroupMutationStage.GROUP_DEFINITION_WRITTEN, GroupMutationStage.MEMBERSHIP_WRITTEN,
+            GroupMutationStage.ORIGIN_WRITTEN, GroupMutationStage.CHUNK_COMMITTED)) {
+            val before = service.revision()
+            val interrupted = newService { step, _ -> if (step == stage) error("Simulated process death") }
+            assertTrue(interrupted.composeFromTv(composition(GroupAction.MOVE, GroupDestination(name = "Recover $stage"), GroupSelection(origin, listOf(1)))).isFailure)
+            service = newService(); service.recover(); service.recover()
+            assertEquals(before + 1, service.revision())
+            val target = custom().customCategories.single { it.name == "Recover $stage" }.id
+            assertTrue(db.customCategoryDao().exists(profile, MediaType.LIVE, target, 1))
+            assertEquals(origin, custom().movedFromOrigin[CustomizeKeys.item(source, "channel-1", "Channel 1")])
+        }
+    }
+
+    @Test fun mergeKeepsMissingPendingIdentitiesAndMovePreventsOriginResurrection() = runBlocking {
+        val missing = JSONObject().put("p", profile).put("kind", "member").put("t", "LIVE").put("src", source)
+            .put("rid", "channel-9").put("name", "Channel 9").put("ctx", a).put("pos", 0).put("at", 10)
+        resolver.importAll(JSONArray().put(missing))
+        val target = service.compose(composition(GroupAction.MOVE, GroupDestination(name = "Missing copy"), GroupSelection(a))).destinationIds.single()
+        assertEquals(1, JSONArray(context.pendingStore.data.first()[PENDING_KEY]!!).length())
+        channels(9..9); resolver.resolvePending()
+        assertTrue(db.customCategoryDao().exists(profile, MediaType.LIVE, target, 9))
+        assertFalse(db.customCategoryDao().exists(profile, MediaType.LIVE, a, 9))
+        assertNull(context.pendingStore.data.first()[PENDING_KEY])
+    }
+
+    @Test fun compositionReusedIdRecoveryDoesNotAttachAnUnrelatedChannel() = runBlocking {
+        val interrupted = newService { step, _ -> if (step == GroupMutationStage.MEMBERSHIP_WRITTEN) error("Simulated restart") }
+        assertTrue(interrupted.composeFromTv(composition(GroupAction.COPY, GroupDestination(name = "Recover identity"), GroupSelection(origin, listOf(1)))).isFailure)
+        val target = custom().customCategories.single { it.name == "Recover identity" }.id
+        db.channelDao().clearSource(source)
+        db.channelDao().insertAll(listOf(ChannelEntity(id = 1, sourceId = source, categoryId = category, name = "Unrelated", remoteId = "other", streamUrl = "https://test/other"),
+            ChannelEntity(id = 9, sourceId = source, categoryId = category, name = "Channel 1", remoteId = "channel-1", streamUrl = "https://test/one")))
+        assertEquals(9L, db.channelDao().findByRemote(source, "channel-1")!!.id)
+        assertEquals("other", db.channelDao().getById(1)!!.remoteId)
+        service = newService(); service.recover()
+        assertTrue(db.customCategoryDao().exists(profile, MediaType.LIVE, target, 9))
+        assertFalse(db.customCategoryDao().exists(profile, MediaType.LIVE, target, 1))
+    }
+
+    @Test fun wholeGroupCopyKeepsMissingMembersAtTheirStoredPositions() = runBlocking {
+        db.customCategoryDao().insertAll(listOf(1L to 0, 3L to 2).map { (item, position) ->
+            CustomCategoryMemberEntity(profileId = profile, mediaType = MediaType.LIVE, contextKey = a,
+                itemId = item, position = position, addedAt = 10)
+        })
+        db.channelDao().clearSource(source)
+        channels(1..1); channels(3..3)
+        resolver.importAll(JSONArray().put(JSONObject().put("p", profile).put("kind", "member").put("t", "LIVE")
+            .put("src", source).put("rid", "channel-2").put("name", "Channel 2").put("ctx", a).put("pos", 1).put("at", 10)))
+        val target = service.compose(composition(GroupAction.COPY, GroupDestination(name = "Missing middle"), GroupSelection(a))).destinationIds.single()
+        channels(2..2); resolver.resolvePending()
+        assertEquals(listOf(1L, 2L, 3L), db.customCategoryDao().snapshotChannels(profile, target, listOf(source), 10).map { it.id })
+        assertEquals(listOf(1L, 2L, 3L), db.customCategoryDao().snapshotChannels(profile, a, listOf(source), 10).map { it.id })
+    }
+
+    @Test fun wholeGroupCopyKeepsMissingManualOrderAheadOfUnorderedMembers() = runBlocking {
+        service.edit(edit(GroupAction.COPY, listOf(1, 3)))
+        resolver.importAll(JSONArray().put(JSONObject().put("p", profile).put("kind", "member").put("t", "LIVE")
+            .put("src", source).put("rid", "channel-9").put("name", "Channel 9").put("ctx", a).put("pos", 2).put("at", 10))
+            .put(JSONObject().put("p", profile).put("kind", "order").put("t", "LIVE").put("src", source)
+                .put("rid", "channel-9").put("name", "Channel 9").put("ctx", a).put("pos", 0)))
+        val target = service.compose(composition(GroupAction.COPY, GroupDestination(name = "Missing manual first"), GroupSelection(a))).destinationIds.single()
+        channels(9..9); resolver.resolvePending()
+        assertEquals(listOf(9L, 1L, 3L), db.customCategoryDao().snapshotChannels(profile, target, listOf(source), 10).map { it.id })
+    }
+
+    @Test fun compositionRecoveryDetachesSwappedIdsAcrossAllChunksBeforeReattachment() = runBlocking {
+        channels(4..501)
+        val failing = newService { step, index -> if (step == GroupMutationStage.CHUNK_COMMITTED && index == 1) error("Simulated restart") }
+        assertTrue(failing.composeFromTv(composition(GroupAction.COPY, GroupDestination(name = "Swapped IDs"), GroupSelection(origin, (1L..501L).toList()))).isFailure)
+        val target = custom().customCategories.single { it.name == "Swapped IDs" }.id
+        db.channelDao().clearSource(source)
+        db.channelDao().insertAll((1..501).map { id ->
+            val original = if (id == 1) 501 else if (id == 501) 1 else id
+            ChannelEntity(id = id.toLong(), sourceId = source, categoryId = category, name = "Channel $original",
+                remoteId = "channel-$original", streamUrl = "https://stream.test/$original")
+        })
+        newService().recover()
+        assertEquals(listOf(501L) + (2L..500L).toList() + 1L,
+            db.customCategoryDao().snapshotChannels(profile, target, listOf(source), 510).map { it.id })
+        assertEquals(1L, service.revision())
+    }
+
+    @Test fun wholeGroupCopyTraversesFiftyThousandRealCatalogRowsInBoundedPages() = runBlocking {
+        channels(4..50000)
+        val result = service.compose(composition(GroupAction.COPY, GroupDestination(name = "Large duplicate"), GroupSelection(origin)))
+        assertEquals(50000, result.added); assertEquals(50000, result.selected)
+        val rows = db.customCategoryDao().getAllOnce().filter { it.contextKey == result.destinationIds.single() }
+        assertEquals(50000, rows.size); assertEquals((0 until 50000).toList(), rows.map { it.position }.sorted())
+        assertTrue(custom().movedFromOrigin.isEmpty()); assertTrue(directory.listFiles()!!.all { it.name == "state.json" })
+    }
+
+    @Test fun compositionRejectsStaleRevisionForeignProfileAndUnlinkedSourceBeforePublishing() = runBlocking {
+        val request = composition(GroupAction.COPY, GroupDestination(name = "Rejected"), GroupSelection(origin))
+        for ((invalid, expected) in listOf(
+            request.copy(expectedRevision = 42) to GroupError.REVISION_CONFLICT,
+            request.copy(scope = request.scope.copy(profileId = -100)) to GroupError.INVALID_PROFILE,
+            request.copy(scope = request.scope.copy(profileId = otherProfile, sourceIds = setOf(otherSource))) to GroupError.INVALID_SOURCE,
+            request.copy(scope = request.scope.copy(mediaType = MediaType.EPISODE)) to GroupError.INVALID_TYPE,
+            request.copy(parts = listOf(GroupCompositionPart(GroupDestination(groupId = a, name = "Ambiguous"), listOf(GroupSelection(origin))))) to GroupError.INVALID_TARGET,
+            request.copy(parts = listOf(GroupCompositionPart(GroupDestination(groupId = "custom:unknown"), listOf(GroupSelection(origin))))) to GroupError.INVALID_TARGET,
+        )) {
+            val failure = service.composeFromTv(invalid).exceptionOrNull() as GroupEditException
+            assertEquals(expected, failure.code)
+            assertEquals(expected, service.progress.value.failure)
+            assertFalse(GroupOperationJournal(directory).readState().has("pending"))
+            assertEquals(0L, service.revision())
+            assertEquals(setOf(a, b, c), custom().customCategories.map { it.id }.toSet())
+            assertTrue(db.customCategoryDao().getAllOnce().isEmpty())
+        }
+    }
+
+    @Test fun compositionWorksInMovieAndSeriesSectionsWithoutCrossingMediaBoundaries() = runBlocking {
+        for (type in listOf(MediaType.MOVIE, MediaType.SERIES)) {
+            val cat = db.categoryDao().insertAll(listOf(CategoryEntity(sourceId = source, mediaType = type, name = "Shows", remoteId = "shows"))).single()
+            if (type == MediaType.MOVIE) db.movieDao().insertAll((1..3).map { MovieEntity(id = it.toLong(), sourceId = source,
+                categoryId = cat, name = "Movie $it", remoteId = "movie-$it", streamUrl = "https://stream.test/movie/$it", sortOrder = 4 - it) })
+            else db.seriesDao().insertSeries((1..3).map { SeriesEntity(id = it.toLong(), sourceId = source,
+                categoryId = cat, name = "Series $it", remoteId = "series-$it", sortOrder = 4 - it) })
+            val request = composition(GroupAction.MOVE, GroupDestination(name = "My $type"), GroupSelection("$source:shows"))
+                .copy(scope = GroupScope(profile, type))
+            val target = service.compose(request).destinationIds.single()
+            val members = db.customCategoryDao().getAllOnce().filter { it.mediaType == type }.sortedBy { it.position }
+            assertEquals(listOf(3L, 2L, 1L), members.map { it.itemId })
+            assertTrue(members.all { it.contextKey == target })
+            assertEquals(3, store.observe(profile, type).first().movedFromOrigin.size)
+            val duplicate = service.compose(request.copy(action = GroupAction.COPY,
+                parts = listOf(GroupCompositionPart(GroupDestination(name = "Copy $type"), listOf(GroupSelection(target)))))).destinationIds.single()
+            assertEquals(listOf(3L, 2L, 1L), db.customCategoryDao().getAllOnce().filter { it.contextKey == duplicate }.sortedBy { it.position }.map { it.itemId })
+        }
+        assertTrue(custom().movedFromOrigin.isEmpty())
+        assertTrue(db.customCategoryDao().getAllOnce().none { it.mediaType == MediaType.LIVE })
+    }
+
+    @Test fun kidsCompositionRejectsAdultOriginsNamesAndExplicitItemsWithoutPartialCreation() = runBlocking {
+        val adult = db.categoryDao().insertAll(listOf(CategoryEntity(sourceId = source, mediaType = MediaType.LIVE, name = "XXX Adult", remoteId = "adult"))).single()
+        db.channelDao().insertAll(listOf(ChannelEntity(id = 4, sourceId = source, categoryId = adult, name = "Adult", remoteId = "adult", streamUrl = "https://stream.test/adult")))
+        service.edit(edit(GroupAction.COPY, listOf(1, 4)))
+        db.profileDao().update(db.profileDao().getById(profile)!!.copy(isKids = true))
+        val before = custom()
+        for ((request, expected) in listOf(
+            composition(GroupAction.COPY, GroupDestination(name = "XXX Adult"), GroupSelection(origin)) to GroupError.INVALID_NAME,
+            composition(GroupAction.COPY, GroupDestination(name = "Kids"), GroupSelection("$source:adult")) to GroupError.INVALID_ORIGIN,
+            composition(GroupAction.MOVE, GroupDestination(name = "Kids"), GroupSelection(a, listOf(1, 4))) to GroupError.INVALID_ITEM,
+        )) {
+            assertEquals(expected, (service.composeFromTv(request).exceptionOrNull() as GroupEditException).code)
+            assertEquals(before, custom())
+        }
+        val target = service.compose(composition(GroupAction.COPY, GroupDestination(name = "Kids"), GroupSelection(a))).destinationIds.single()
+        assertEquals(listOf(1L), db.customCategoryDao().snapshotChannels(profile, target, listOf(source), 10).map { it.id })
+        assertTrue(db.customCategoryDao().exists(profile, MediaType.LIVE, a, 4))
+    }
+
+    @Test fun compositionCopiesEmptyGroupsAndRepeatIntoAnEmptyExistingGroupIsANoOp() = runBlocking {
+        val empty = service.compose(composition(GroupAction.COPY, GroupDestination(name = "Empty copy"), GroupSelection(a)))
+        assertEquals(0, empty.selected); assertEquals(0, empty.added); assertEquals(1L, empty.revision)
+        assertTrue(custom().customCategories.any { it.id == empty.destinationIds.single() })
+        val repeat = service.compose(composition(GroupAction.COPY, GroupDestination(groupId = b), GroupSelection(a)))
+        assertEquals(1L, repeat.revision); assertEquals(0, repeat.added)
+        assertFalse(GroupOperationJournal(directory).readState().has("pending"))
+    }
+
+    @Test fun compositionContinuesAfterItsTvEditorIsCancelledFollowingPublication() = runBlocking {
+        withTimeout(30_000) {
+            coroutineScope {
+                val committed = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
+                val operation = newService { step, _ -> if (step == GroupMutationStage.MEMBERSHIP_WRITTEN) { committed.complete(Unit); release.await() } }
+                val job = async { operation.composeFromTv(composition(GroupAction.MOVE, GroupDestination(name = "Detached editor"), GroupSelection(origin))) }
+                committed.await(); job.cancel(); release.complete(Unit); job.join()
+                val target = custom().customCategories.single { it.name == "Detached editor" }.id
+                assertEquals(listOf(1L, 2L, 3L), db.customCategoryDao().snapshotChannels(profile, target, listOf(source), 10).map { it.id })
+                assertEquals(3, custom().movedFromOrigin.size)
+                assertEquals(1L, service.revision())
+                assertFalse(GroupOperationJournal(directory).readState().has("pending"))
+            }
+        }
+    }
+
+    private suspend fun noOpWhileAnotherImportFinishes(expected: Long?): Result<GroupCompositionResult> = coroutineScope {
+        val imported = CompletableDeferred<Unit>(); val releaseImport = CompletableDeferred<Unit>()
+        val planned = CompletableDeferred<Unit>(); val releasePlan = CompletableDeferred<Unit>()
+        service = newService { stage, _ -> if (stage == GroupMutationStage.COMPOSITION_PLANNED) { planned.complete(Unit); releasePlan.await() } }
+        val importJob = async { service.withCatalogSource(otherSource) { imported.complete(Unit); releaseImport.await() } }
+        imported.await()
+        val request = composition(GroupAction.COPY, GroupDestination(groupId = b), GroupSelection(a))
+            .copy(scope = GroupScope(profile, MediaType.LIVE, setOf(source)), expectedRevision = expected)
+        val operation = async { service.composeFromTv(request) }
+        planned.await(); releaseImport.complete(Unit); importJob.await(); releasePlan.complete(Unit)
+        operation.await()
+    }
+
+    @Test fun noOpCompositionStillRejectsARevisionChangedDuringPlanning() = runBlocking {
+        withTimeout(30_000) {
+            val result = noOpWhileAnotherImportFinishes(0)
+            assertEquals(GroupError.REVISION_CONFLICT, (result.exceptionOrNull() as GroupEditException).code)
+            assertEquals(1L, service.revision())
+            assertFalse(GroupOperationJournal(directory).readState().has("pending"))
+            assertTrue(directory.listFiles()!!.none { it.isDirectory })
+        }
+    }
+
+    @Test fun noOpCompositionWithoutARevisionGuardReturnsTheCurrentCatalogRevision() = runBlocking {
+        withTimeout(30_000) {
+            val result = noOpWhileAnotherImportFinishes(null).getOrThrow()
+            assertEquals(1L, result.revision); assertEquals(0, result.added)
+            assertEquals(1L, service.revision())
+            assertFalse(GroupOperationJournal(directory).readState().has("pending"))
+        }
+    }
+
+    @Test fun cancellingCompositionDuringPlanningPublishesNothingAndOrphansAreRecoverable() = runBlocking {
+        withTimeout(30_000) {
+            coroutineScope {
+                val planned = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
+                val operation = newService { stage, _ -> if (stage == GroupMutationStage.COMPOSITION_PLANNED) { planned.complete(Unit); release.await() } }
+                val job = async { operation.composeFromTv(composition(GroupAction.MOVE, GroupDestination(name = "Cancelled"), GroupSelection(origin))) }
+                planned.await(); job.cancel(); job.join()
+                assertFalse(GroupOperationJournal(directory).readState().has("pending"))
+                assertEquals(0L, service.revision())
+                assertEquals(setOf(a, b, c), custom().customCategories.map { it.id }.toSet())
+                assertTrue(db.customCategoryDao().getAllOnce().isEmpty())
+                assertTrue(custom().movedFromOrigin.isEmpty())
+                newService().recover()
+                assertTrue(directory.listFiles().orEmpty().none { it.isDirectory })
+            }
+        }
+    }
+
     @Test fun copyIsOrderedIdempotentAndKeepsProviderFavoritesAndOtherGroups() = runBlocking {
         db.favoriteDao().add(FavoriteEntity(profileId = profile, mediaType = MediaType.LIVE, itemId = 1))
         assertEquals(3, service.edit(edit(GroupAction.COPY, listOf(3, 1, 2, 3))).added)

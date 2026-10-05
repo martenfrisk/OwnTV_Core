@@ -42,6 +42,7 @@ data class GroupOperationProgress(
 enum class GroupMutationStage {
     MEMBERSHIP_WRITTEN, ORIGIN_WRITTEN, CHUNK_COMMITTED,
     GROUP_TOMBSTONE_RECORDED, GROUP_DEFINITION_WRITTEN, GROUP_CLEANUP_COMPLETE,
+    COMPOSITION_PLANNED,
 }
 
 /** Definition edits affect user metadata; a custom-group delete always removes the whole group. */
@@ -58,3 +59,27 @@ data class GroupDefinitionEdit(
 )
 
 data class GroupDefinitionResult(val operationId: String, val groupIds: List<String>, val revision: Long)
+
+/** A null selection copies the complete group in its stored order; explicit IDs support splitting. */
+data class GroupSelection(val groupId: String, val itemIds: List<Long>? = null)
+
+/** Exactly one of groupId/name is supplied: an existing destination or a freshly created group. */
+data class GroupDestination(val groupId: String? = null, val name: String? = null)
+
+data class GroupCompositionPart(val destination: GroupDestination, val selections: List<GroupSelection>)
+
+/** Duplicate = one Copy part; merge = several selections; split = several explicit-selection parts. */
+data class GroupCompositionEdit(
+    val scope: GroupScope,
+    val action: GroupAction,
+    val parts: List<GroupCompositionPart>,
+    val expectedRevision: Long? = null,
+)
+
+data class GroupCompositionResult(
+    val operationId: String,
+    val destinationIds: List<String>,
+    val selected: Int,
+    val added: Int,
+    val revision: Long,
+)

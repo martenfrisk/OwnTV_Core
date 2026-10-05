@@ -224,13 +224,13 @@
 13	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	fav
 3	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	group
 12	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	his
-19	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	kind
-18	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	member
+20	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	kind
+19	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	member
 13	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	name
 5	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	oid
-11	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	order
+12	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	order
 1	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	owntv_pending_userdata
-15	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	p
+16	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	p
 6	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	pos
 13	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	prog
 15	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	rid
@@ -240,7 +240,7 @@
 9	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	sort
 15	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	src
 5	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	srid
-23	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	t
+24	json	core/src/main/java/tv/own/owntv/core/backup/UserDataResolver.kt	t
 1	json	core/src/main/java/tv/own/owntv/core/backup/UserDataWriter.kt	fav
 4	json	core/src/main/java/tv/own/owntv/core/backup/UserDataWriter.kt	his
 1	json	core/src/main/java/tv/own/owntv/core/backup/UserDataWriter.kt	member
@@ -494,6 +494,38 @@
 2	json	core/src/main/java/tv/own/owntv/core/customize/CustomizationStore.kt	hiddenItems
 2	json	core/src/main/java/tv/own/owntv/core/customize/CustomizationStore.kt	itemNames
 1	technical	core/src/main/java/tv/own/owntv/core/customize/CustomizationStore.kt	owntv_customizations
+1	empty	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	\0
+1	protocol	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	${CustomizeKeys.CUSTOM_PREFIX}${java.util.UUID.randomUUID()}
+2	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	action
+5	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	at
+2	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	chunks
+1	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	composition
+3	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	ctx
+3	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	customOrigin
+2	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	definitions
+2	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	deleteAt
+1	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	domain
+2	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	id
+5	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	key
+3	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	kind
+2	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	member
+5	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	name
+1	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	next
+2	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	oid
+1	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	order
+5	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	origin
+2	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	originAt
+3	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	originPos
+1	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	p
+7	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	pos
+2	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	profile
+3	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	rid
+1	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	sources
+3	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	src
+1	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	t
+4	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	target
+1	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	total
+2	json	core/src/main/java/tv/own/owntv/core/customize/GroupCompositionCommands.kt	type
 2	file-path	core/src/main/java/tv/own/owntv/core/customize/GroupOperationJournal.kt	$index.json
 2	json	core/src/main/java/tv/own/owntv/core/customize/GroupOperationJournal.kt	revision
 1	file-path	core/src/main/java/tv/own/owntv/core/customize/GroupOperationJournal.kt	state.json
@@ -506,6 +538,7 @@
 2	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	added
 4	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	at
 4	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	chunks
+1	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	composition
 1	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	ctx
 3	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	customOrigin
 5	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	deleteAt
@@ -514,28 +547,28 @@
 3	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	favoritesOrigin
 1	file-path	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	group-operations
 2	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	groups
-6	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	id
+8	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	id
 6	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	key
 1	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	kind
 1	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	member
 8	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	name
-3	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	next
+4	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	next
 4	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	oid
 5	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	origin
 2	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	originAt
 3	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	originPos
 1	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	p
-7	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	pending
+10	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	pending
 5	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	pos
 4	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	profile
 2	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	restoreProvider
-11	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	revision
+13	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	revision
 3	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	rid
 3	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	sources
 2	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	src
 1	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	t
 2	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	target
-5	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	total
+6	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	total
 4	json	core/src/main/java/tv/own/owntv/core/customize/GroupService.kt	type
 2	room-schema	core/src/main/java/tv/own/owntv/core/database/BulkInsertHelper.kt	\0
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/BulkInsertHelper.kt	$msg — no canonical indexes for ${state.table}, indexes were dropped and NOT restored
@@ -1158,6 +1191,12 @@
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/FavoriteDao.kt	e.seasonNumber AS seasonNumber, e.episodeNumber AS episodeNumber,
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/FavoriteDao.kt	episodeSeries.remoteId AS seriesRemoteId, episodeSeries.name AS seriesName,
 1	room-schema	core/src/main/java/tv/own/owntv/core/database/dao/FavoriteDao.kt	f.addedAt AS at, 0 AS positionMs, 0 AS durationMs
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/GroupCatalogDao.kt	SELECT * FROM (SELECT i.id, i.sourceId, i.categoryId, i.remoteId, i.name, CAST(c.sourceId AS TEXT) || ':' || COALESCE(c.remoteId, c.name) AS providerKey, CASE WHEN o.position IS NULL THEN 1 ELSE 0 END AS cursorBucket, COALESCE(o.position, 0) AS cursorOrder, 0 AS cursorMember, i.sortOrder AS cursorSort FROM channels i LEFT JOIN categories c ON c.id = i.categoryId LEFT JOIN content_order o ON o.itemId = i.id AND o.profileId = :profileId AND o.mediaType = :type AND o.contextKey = :key WHERE i.categoryId = :categoryId) WHERE (cursorBucket, cursorOrder, cursorMember, cursorSort, name, id) > (:bucket, :order, :member, :sort, :name, :id) ORDER BY cursorBucket, cursorOrder, cursorMember, cursorSort, name, id LIMIT :limit
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/GroupCatalogDao.kt	SELECT * FROM (SELECT i.id, i.sourceId, i.categoryId, i.remoteId, i.name, CAST(c.sourceId AS TEXT) || ':' || COALESCE(c.remoteId, c.name) AS providerKey, CASE WHEN o.position IS NULL THEN 1 ELSE 0 END AS cursorBucket, COALESCE(o.position, 0) AS cursorOrder, 0 AS cursorMember, i.sortOrder AS cursorSort FROM movies i LEFT JOIN categories c ON c.id = i.categoryId LEFT JOIN content_order o ON o.itemId = i.id AND o.profileId = :profileId AND o.mediaType = :type AND o.contextKey = :key WHERE i.categoryId = :categoryId) WHERE (cursorBucket, cursorOrder, cursorMember, cursorSort, name, id) > (:bucket, :order, :member, :sort, :name, :id) ORDER BY cursorBucket, cursorOrder, cursorMember, cursorSort, name, id LIMIT :limit
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/GroupCatalogDao.kt	SELECT * FROM (SELECT i.id, i.sourceId, i.categoryId, i.remoteId, i.name, CAST(c.sourceId AS TEXT) || ':' || COALESCE(c.remoteId, c.name) AS providerKey, CASE WHEN o.position IS NULL THEN 1 ELSE 0 END AS cursorBucket, COALESCE(o.position, 0) AS cursorOrder, 0 AS cursorMember, i.sortOrder AS cursorSort FROM series i LEFT JOIN categories c ON c.id = i.categoryId LEFT JOIN content_order o ON o.itemId = i.id AND o.profileId = :profileId AND o.mediaType = :type AND o.contextKey = :key WHERE i.categoryId = :categoryId) WHERE (cursorBucket, cursorOrder, cursorMember, cursorSort, name, id) > (:bucket, :order, :member, :sort, :name, :id) ORDER BY cursorBucket, cursorOrder, cursorMember, cursorSort, name, id LIMIT :limit
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/GroupCatalogDao.kt	SELECT * FROM (SELECT i.id, i.sourceId, i.categoryId, i.remoteId, i.name, CAST(c.sourceId AS TEXT) || ':' || COALESCE(c.remoteId, c.name) AS providerKey, CASE WHEN o.position IS NULL THEN 1 ELSE 0 END AS cursorBucket, COALESCE(o.position, 0) AS cursorOrder, m.position AS cursorMember, i.sortOrder AS cursorSort FROM channels i LEFT JOIN categories c ON c.id = i.categoryId INNER JOIN custom_category_members m ON m.itemId = i.id AND m.profileId = :profileId AND m.mediaType = :type AND m.contextKey = :key LEFT JOIN content_order o ON o.itemId = i.id AND o.profileId = :profileId AND o.mediaType = :type AND o.contextKey = :key WHERE i.sourceId IN (SELECT sourceId FROM profile_source WHERE profileId = :profileId)) WHERE (cursorBucket, cursorOrder, cursorMember, cursorSort, name, id) > (:bucket, :order, :member, :sort, :name, :id) ORDER BY cursorBucket, cursorOrder, cursorMember, cursorSort, name, id LIMIT :limit
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/GroupCatalogDao.kt	SELECT * FROM (SELECT i.id, i.sourceId, i.categoryId, i.remoteId, i.name, CAST(c.sourceId AS TEXT) || ':' || COALESCE(c.remoteId, c.name) AS providerKey, CASE WHEN o.position IS NULL THEN 1 ELSE 0 END AS cursorBucket, COALESCE(o.position, 0) AS cursorOrder, m.position AS cursorMember, i.sortOrder AS cursorSort FROM movies i LEFT JOIN categories c ON c.id = i.categoryId INNER JOIN custom_category_members m ON m.itemId = i.id AND m.profileId = :profileId AND m.mediaType = :type AND m.contextKey = :key LEFT JOIN content_order o ON o.itemId = i.id AND o.profileId = :profileId AND o.mediaType = :type AND o.contextKey = :key WHERE i.sourceId IN (SELECT sourceId FROM profile_source WHERE profileId = :profileId)) WHERE (cursorBucket, cursorOrder, cursorMember, cursorSort, name, id) > (:bucket, :order, :member, :sort, :name, :id) ORDER BY cursorBucket, cursorOrder, cursorMember, cursorSort, name, id LIMIT :limit
+1	sql	core/src/main/java/tv/own/owntv/core/database/dao/GroupCatalogDao.kt	SELECT * FROM (SELECT i.id, i.sourceId, i.categoryId, i.remoteId, i.name, CAST(c.sourceId AS TEXT) || ':' || COALESCE(c.remoteId, c.name) AS providerKey, CASE WHEN o.position IS NULL THEN 1 ELSE 0 END AS cursorBucket, COALESCE(o.position, 0) AS cursorOrder, m.position AS cursorMember, i.sortOrder AS cursorSort FROM series i LEFT JOIN categories c ON c.id = i.categoryId INNER JOIN custom_category_members m ON m.itemId = i.id AND m.profileId = :profileId AND m.mediaType = :type AND m.contextKey = :key LEFT JOIN content_order o ON o.itemId = i.id AND o.profileId = :profileId AND o.mediaType = :type AND o.contextKey = :key WHERE i.sourceId IN (SELECT sourceId FROM profile_source WHERE profileId = :profileId)) WHERE (cursorBucket, cursorOrder, cursorMember, cursorSort, name, id) > (:bucket, :order, :member, :sort, :name, :id) ORDER BY cursorBucket, cursorOrder, cursorMember, cursorSort, name, id LIMIT :limit
 1	sql	core/src/main/java/tv/own/owntv/core/database/dao/GroupCatalogDao.kt	SELECT * FROM categories WHERE mediaType = :type AND CAST(sourceId AS TEXT) || ':' || COALESCE(remoteId, name) = :key LIMIT 2
 1	sql	core/src/main/java/tv/own/owntv/core/database/dao/GroupCatalogDao.kt	SELECT i.id, i.sourceId, i.categoryId, i.remoteId, i.name, CAST(c.sourceId AS TEXT) || ':' || COALESCE(c.remoteId, c.name) AS providerKey FROM channels i LEFT JOIN categories c ON c.id = i.categoryId WHERE i.id IN (:ids)
 1	sql	core/src/main/java/tv/own/owntv/core/database/dao/GroupCatalogDao.kt	SELECT i.id, i.sourceId, i.categoryId, i.remoteId, i.name, CAST(c.sourceId AS TEXT) || ':' || COALESCE(c.remoteId, c.name) AS providerKey FROM movies i LEFT JOIN categories c ON c.id = i.categoryId WHERE i.id IN (:ids)
