@@ -34,6 +34,24 @@ interface TombstoneDao {
     @Query("SELECT COUNT(*) FROM user_data_tombstones")
     suspend fun count(): Int
 
+    @Query("SELECT * FROM user_data_tombstones WHERE kind = 'group' AND groupAppliedAt < deletedAt ORDER BY id LIMIT :limit")
+    suspend fun pendingGroupDeletions(limit: Int): List<UserDataTombstoneEntity>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM user_data_tombstones WHERE kind = 'group' AND groupAppliedAt < deletedAt)")
+    suspend fun hasPendingGroupDeletions(): Boolean
+
+    @Query("SELECT * FROM user_data_tombstones WHERE kind = 'group'")
+    suspend fun groupDeletions(): List<UserDataTombstoneEntity>
+
+    @Query("SELECT * FROM user_data_tombstones WHERE profileId = :profileId AND kind = 'member' AND id > :afterId ORDER BY id LIMIT :limit")
+    suspend fun memberDeletionsAfter(profileId: Long, afterId: Long, limit: Int): List<UserDataTombstoneEntity>
+
+    @Query("SELECT COALESCE(MAX(deletedAt), 0) FROM user_data_tombstones WHERE profileId = :profileId AND kind = 'group'")
+    suspend fun latestGroupDeletion(profileId: Long): Long
+
+    @Query("UPDATE user_data_tombstones SET groupAppliedAt = :at WHERE profileId = :profileId AND kind = 'group' AND identity = :identity AND deletedAt = :at")
+    suspend fun markGroupApplied(profileId: Long, identity: String, at: Long)
+
     /**
      * Forgets this device's deletions for [profileIds] — what a *restore* does before applying a
      * file, and only a restore.
@@ -48,13 +66,12 @@ interface TombstoneDao {
     suspend fun deleteForProfiles(profileIds: List<Long>)
 
     /**
-     * Drops all but the [keep] newest. A tombstone is only useful until every device has seen it, and
-     * "Clear watch history" on a big library writes one per row — without a cap the table would grow
-     * for ever to remember deletions nothing will ever ask about again.
+     * Caps watch/favorite deletion history. Group and membership facts survive this cap: discarding
+     * one after a large edit would allow an offline device to resurrect the user's organization.
      */
     @Query(
-        "DELETE FROM user_data_tombstones WHERE id NOT IN " +
-            "(SELECT id FROM user_data_tombstones ORDER BY deletedAt DESC LIMIT :keep)",
+        "DELETE FROM user_data_tombstones WHERE kind NOT IN ('group', 'member') AND id NOT IN " +
+            "(SELECT id FROM user_data_tombstones WHERE kind NOT IN ('group', 'member') ORDER BY deletedAt DESC LIMIT :keep)",
     )
     suspend fun prune(keep: Int)
 }

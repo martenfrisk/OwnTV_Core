@@ -25,7 +25,7 @@ data class GroupEditResult(val operationId: String, val selected: Int, val added
 
 enum class GroupError {
     INVALID_PROFILE, INVALID_TYPE, INVALID_SOURCE, INVALID_ITEM, INVALID_TARGET, INVALID_ORIGIN,
-    REVISION_CONFLICT, POSITION_OVERFLOW, JOURNAL_UNAVAILABLE,
+    REVISION_CONFLICT, POSITION_OVERFLOW, JOURNAL_UNAVAILABLE, INVALID_GROUP, INVALID_NAME,
 }
 
 class GroupEditException(val code: GroupError) : IllegalArgumentException(code.name)
@@ -39,4 +39,22 @@ data class GroupOperationProgress(
 )
 
 /** Failure-injection boundary used by real-store recovery tests. No callback is installed in production. */
-enum class GroupMutationStage { MEMBERSHIP_WRITTEN, ORIGIN_WRITTEN, CHUNK_COMMITTED }
+enum class GroupMutationStage {
+    MEMBERSHIP_WRITTEN, ORIGIN_WRITTEN, CHUNK_COMMITTED,
+    GROUP_TOMBSTONE_RECORDED, GROUP_DEFINITION_WRITTEN, GROUP_CLEANUP_COMPLETE,
+}
+
+/** Definition edits affect user metadata; a custom-group delete always removes the whole group. */
+enum class GroupDefinitionAction { CREATE, RENAME, DELETE, HIDE, UNHIDE, RESET, REORDER }
+
+data class GroupDefinitionEdit(
+    val scope: GroupScope,
+    val action: GroupDefinitionAction,
+    val groupIds: List<String> = emptyList(),
+    val name: String? = null,
+    val expectedRevision: Long? = null,
+    /** Bulk display-name overrides; null restores the original name. */
+    val names: Map<String, String?> = emptyMap(),
+)
+
+data class GroupDefinitionResult(val operationId: String, val groupIds: List<String>, val revision: Long)

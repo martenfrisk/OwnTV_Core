@@ -307,11 +307,40 @@ class CustomizationStore(private val context: Context) {
 
     /** Merge-restore (backup): overwrites only the provided keys, keeping every other profile's
      *  customizations untouched (restore must never wipe profiles that aren't in the file). */
-    suspend fun mergeAll(entries: Map<String, String>) {
+    suspend fun mergeAll(entries: Map<String, String>, mergeCustomGroups: Boolean = false) {
         if (entries.isEmpty()) return
         context.customizeStore.edit { prefs ->
-            entries.forEach { (k, v) -> if (k.startsWith("cust_")) prefs[stringPreferencesKey(k)] = v }
+            entries.forEach { (k, v) ->
+                if (k.startsWith("cust_")) {
+                    val key = stringPreferencesKey(k)
+                    if (!mergeCustomGroups) prefs[key] = v
+                    else {
+                        val incoming = parse(v)
+                        val current = parse(prefs[key])
+                        val incomingIds = incoming.customCategories.map { it.id }.toSet()
+                        val localOnly = current.customCategories.filterNot { it.id in incomingIds }
+                        val localIds = localOnly.map { it.id }.toSet()
+                        prefs[key] = serialize(incoming.copy(
+                            customCategories = incoming.customCategories + localOnly,
+                            hiddenCategories = incoming.hiddenCategories + current.hiddenCategories.filter { it in localIds },
+                            categoryNames = incoming.categoryNames + current.categoryNames.filterKeys { it in localIds },
+                            categoryOrder = incoming.categoryOrder + current.categoryOrder.filter { it in localIds },
+                        ))
+                    }
+                }
+            }
         }
+    }
+
+    internal fun withoutDeletedGroups(raw: String, groupIds: Set<String>, restoreItemKeys: Set<String>): String {
+        val data = parse(raw)
+        return serialize(data.copy(
+            customCategories = data.customCategories.filterNot { it.id in groupIds },
+            hiddenCategories = data.hiddenCategories - groupIds,
+            categoryNames = data.categoryNames - groupIds,
+            categoryOrder = data.categoryOrder.filterNot { it in groupIds },
+            movedFromOrigin = data.movedFromOrigin - restoreItemKeys,
+        ))
     }
 
     // --- JSON (org.json, matching BackupManager's style) ---

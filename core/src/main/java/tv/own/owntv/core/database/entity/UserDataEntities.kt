@@ -264,6 +264,8 @@ data class UserDataTombstoneEntity(
     /** Canonical stable content key JSON; see [tv.own.owntv.core.backup.UserDataResolver.canonicalIdentity]. */
     val identity: String,
     val deletedAt: Long = System.currentTimeMillis(),
+    /** Group definitions live in DataStore; this marks completed cross-store deletion cleanup. */
+    @ColumnInfo(defaultValue = "0") val groupAppliedAt: Long = 0,
 )
 
 @Entity(

@@ -1,6 +1,6 @@
 # Custom group membership foundation
 
-The fork uses upstream `custom_category_members` (fork Room schema 48, upstream baseline 47). A membership is scoped by
+The fork uses upstream `custom_category_members` (fork Room schema 49, upstream baseline 47). A membership is scoped by
 `profileId`, `mediaType`, `contextKey`, and `itemId`; custom groups can share members and combine
 sources. Provider category IDs and source identities remain unchanged.
 
@@ -71,13 +71,13 @@ UserDataWriter. Missing/corrupt journal files retain the command and fail closed
 Group mutations serialize. SourceRepository refresh/update/delete and Stalker background backfill
 hold per-source catalog locks; unrelated imports remain parallel. Backup export/import, profile
 changes and TV group-definition creation/deletion finish accepted commands before reading or
-changing their scope. The journal is recovery metadata, not canonical backup data; schema 48 and
-backup format 24 remain unchanged. Catalog revisions persist across restart and advance after
+changing their scope. The journal is recovery metadata, not canonical backup data. Membership commands retain backup
+format 24; the definition-deletion follow-up below adds schema 49. Catalog revisions persist across restart and advance after
 changes, including partial failed/cancelled imports. Screen cancellation remains possible during
 planning, while published commands finish before releasing their locks.
 
-This service does not complete the full group milestone: durable definition deletion, complete
-CRUD/duplicate/merge/split, bulk naming/reordering/reset, remaining TV editor work and the remote
+The original service checkpoint did not complete the full group milestone. Definition edits are
+implemented below; duplicate/merge/split composition, remaining TV editor work and the remote
 management API still require implementation and acceptance. It is also not a catalog/Guide browse,
 playback, low-memory or representative-hardware performance claim.
 
@@ -88,3 +88,54 @@ Core JVM counts remain 914/252; TV JVM/device counts remain 177/19. Fault-inject
 excluded from these unique counts. The 50,000-item cases contain actual catalog rows and verify
 Copy ordering and provider Move's independent suppression; they are domain-operation tests,
 not full browse/playback performance acceptance.
+
+
+## Durable definition edits and backup deletion
+
+`GroupDefinitionEdit` routes Create, Rename (including bulk display overrides), Delete, Hide,
+Unhide, Reset and Reorder through the journal. Names trim and validate before mutation; a null
+rename clears the display override. Provider identities remain unchanged. Scope validation and
+expected catalog revisions match membership commands. Filtered reordering replaces selected
+slots in the full order, retaining every other source's placement. Reset clears only the selected
+groups' hide/name/order overrides and provider suppression; custom memberships remain intact.
+
+Definition deletion always restores provider origins for former members, preserving the existing
+TV policy even if another custom group contains an item. It preserves global item hiding, favorites
+and other custom memberships. Before clearing membership identities, it writes canonical `group`
+and `member` deletion facts, removes the definition and its pins and restores provider keys. Room
+membership/order and pending records are then removed. Schema 49's additive `groupAppliedAt`
+column marks cleanup completion for the exact deletion event. A newer deletion cannot be marked
+complete by an older cleanup. Startup also completes incoming intents without a private journal.
+
+Merge refuses a retired UUID's stale definitions, membership and group-specific order even while
+catalog rows are missing; it discards refused pending records. Received member facts can restore
+provider keys after their Room rows were already removed. Local groups absent from an offline
+peer survive section merging with their local group pins; incoming metadata wins for shared UUIDs.
+Explicit Restore keeps upstream's deletion-marker reset and can restore the original UUID.
+Organizational facts survive the watch/favorite tombstone cap, including edits over 10,000 members.
+Pending resolution/relink/deletion snapshots serialize, preserving concurrently appended records.
+
+Customize-only backups now carry custom memberships together with definitions and deletion facts.
+Manual Reorder continues accepting memberships for existing callers/files. Deleted-only backup
+payloads are discoverable. Canonical profile IDs remap normally; group UUIDs and source sentinel
+-1 stay unchanged. Backup format stays 24, and old readers cannot enforce the new group deletion
+policy. This is the existing identity/resolver system, not a parallel fingerprint.
+
+The TV's existing definition actions now use this shared boundary and localized validation errors.
+A D-pad reorder carries the profile/media/source scope captured when the editor opens. Bulk rename
+captures selected rows, accepted names and persistence callbacks before queued writes run;
+obsolete previews cannot reopen or replace a dismissed/new editor. The provider/catalog and
+playback paths remain separate from these user-data edits.
+
+Duplicate/merge/split composition, remaining item/group actions and their TV/browser editors still
+belong to the full-plan milestone. Automated persistence tests do not establish browse/Guide,
+playback, hardware or D-pad golden acceptance.
+
+
+Definition checkpoint verification: Core/Player JVM suites pass 918/252 cases, including four
+queued-editor regression cases. Core device suite passes 139 cases: 41 GroupService, 16 membership,
+17 migration and existing subsystem cases. Recovery tests interrupt definition publication and each
+cleanup boundary; backup tests use actual Customize-only and deletion-only files, including profile
+remapping, stale Merge and explicit Restore. The 10,001-member deletion retains every removal fact
+past the watch-history cap. Missing identities in retired groups are refused instead of left pending.
+Lint remains zero errors/eight existing Core warnings and zero Player warnings; no new group findings.

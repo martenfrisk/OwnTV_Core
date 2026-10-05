@@ -49,6 +49,12 @@ interface CustomCategoryDao {
     @Query("DELETE FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey")
     suspend fun clearContext(profileId: Long, type: MediaType, contextKey: String)
 
+    @Query("SELECT * FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey = :contextKey AND id > :afterId ORDER BY id LIMIT :limit")
+    suspend fun membersAfter(profileId: Long, type: MediaType, contextKey: String, afterId: Long, limit: Int): List<CustomCategoryMemberEntity>
+
+    @Query("SELECT COALESCE(MAX(addedAt), 0) FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type AND contextKey IN (:keys)")
+    suspend fun latestMemberTime(profileId: Long, type: MediaType, keys: List<String>): Long
+
     /** Context keys that actually have membership rows for this profile/section. */
     @Query("SELECT DISTINCT contextKey FROM custom_category_members WHERE profileId = :profileId AND mediaType = :type")
     fun observeContextKeys(profileId: Long, type: MediaType): Flow<List<String>>

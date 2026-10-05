@@ -39,6 +39,8 @@ data class CategoryMove(
     val rows: List<CustomizedCategory>,
     val activeIndex: Int,
     val targetKey: String,
+    /** Captured when the editor opens; committing after a profile change keeps its original scope. */
+    val scope: GroupScope? = null,
 ) {
     /** Displayed names, in the order the move has them now. */
     val items: List<String> get() = rows.map { it.displayName }
@@ -109,7 +111,7 @@ class CategoryRailEditor(
     ): CategoryMove? = CategoryMove.begin(
         rows(profileId, sourceIds, type, alphaRest),
         customizationKey(key) ?: return null,
-    )
+    )?.copy(scope = GroupScope(profileId, type, sourceIds.toSet()))
 
     /** Moves a category one step and stores the result — the phone's menu. */
     suspend fun move(

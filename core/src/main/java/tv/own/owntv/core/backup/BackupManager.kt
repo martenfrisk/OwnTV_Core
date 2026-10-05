@@ -628,13 +628,15 @@ class BackupManager(
                 root.optString("tmdbOverrides").isNotBlank()
             ) out += Section.CUSTOMIZE
             if (root.optJSONObject("settings")?.keys()?.hasNext() == true) out += Section.SETTINGS
-            root.optJSONArray("userData")?.let { arr ->
+            listOfNotNull(root.optJSONArray("userData"), root.optJSONArray("tombstones")).forEach { arr ->
                 for (i in 0 until arr.length()) {
                     when (arr.getJSONObject(i).optString("kind")) {
+                        "group" -> out += Section.CUSTOMIZE
                         "fav" -> out += Section.FAVORITES
                         "his" -> out += Section.HISTORY
                         "prog" -> out += Section.RESUME
-                        "order", "sort", "member" -> out += Section.MANUAL_REORDER
+                        "member" -> { out += Section.CUSTOMIZE; out += Section.MANUAL_REORDER }
+                        "order", "sort" -> out += Section.MANUAL_REORDER
                     }
                 }
             }
@@ -1086,7 +1088,8 @@ class BackupManager(
                         val pid = profileIdMap[filePid] ?: return@forEach
                         cust["cust_${pid}_${body.substringAfter('_')}"] = remapCustomizationValue(o.getString(k), sourceIdMap)
                     }
-                    customize.mergeAll(cust)
+                    val safe = if (mode == ImportMode.MERGE) userData.filterDeletedGroupCustomizations(cust) else cust
+                    customize.mergeAll(safe, mergeCustomGroups = mode == ImportMode.MERGE)
                     count += cust.size
                 }
                 root.optJSONObject("homeConfigs")?.let { settings.importHomeConfigs(remapProfileKeys(it, profileIdMap), existingProfileIds) }
@@ -1513,12 +1516,12 @@ class BackupManager(
     }
 
     private fun kindsFor(sections: Set<Section>): Set<String> = buildSet {
+        if (Section.CUSTOMIZE in sections) { add("group"); add("member") }
         if (Section.FAVORITES in sections) add("fav")
         if (Section.HISTORY in sections) add("his")
         if (Section.RESUME in sections) add("prog")
-        // "sort" (per-series season/episode order) and "member" (custom category membership, #87)
-        // ride with MANUAL_REORDER: all are per-profile, per-item ordering preferences, so one tick
-        // covers everything the user has hand-ordered.
+        // Membership travels with CUSTOMIZE so group definitions have their contents. Keep accepting
+        // it with MANUAL_REORDER too for existing files and callers; sort/order retain that section.
         if (Section.MANUAL_REORDER in sections) { add("order"); add("sort"); add("member") }
     }
 

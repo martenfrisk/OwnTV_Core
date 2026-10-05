@@ -7,6 +7,8 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import tv.own.owntv.core.database.dao.ChannelDao
@@ -68,6 +70,68 @@ class UserDataResolver(
     private val tombstoneDao: TombstoneDao,
     private val db: tv.own.owntv.core.database.OwnTVDatabase,
 ) {
+
+    private val pendingMutations = Mutex()
+    private val groupDeletions by lazy { GroupDeletionResolver(context, db, this) }
+
+    internal suspend fun hasPendingGroupDeletions(): Boolean = tombstoneDao.hasPendingGroupDeletions()
+    internal suspend fun reconcileDeletedGroups(afterStep: suspend (tv.own.owntv.core.customize.GroupMutationStage, Int) -> Unit = { _, _ -> }) =
+        pendingMutations.withLock { groupDeletions.reconcile(afterStep) }
+    internal suspend fun recordGroupDeletion(profileId: Long, type: MediaType, key: String, at: Long) =
+        groupDeletions.record(profileId, type, key, at)
+
+    /** Validate event-time overflow before a definition command becomes durable. */
+    internal suspend fun latestGroupMemberTime(profileId: Long, type: MediaType, keys: List<String>): Long = pendingMutations.withLock {
+        var latest = 0L
+        for (batch in keys.chunked(500)) latest = maxOf(latest, customCategoryDao.latestMemberTime(profileId, type, batch))
+        val selected = keys.toSet()
+        val pending = context.pendingStore.data.first()[PENDING_KEY]?.let { JSONArray(it) } ?: JSONArray()
+        for (i in 0 until pending.length()) {
+            val record = pending.getJSONObject(i)
+            if (record.optLong("p", -1) == profileId && record.optString("t") == type.name &&
+                record.optString("ctx") in selected && record.optString("kind") == "member") latest = maxOf(latest, record.optLong("at", 0))
+        }
+        latest
+    }
+
+    /** Known deletion facts win over stale group definitions, pins and former-origin suppression. */
+    internal suspend fun filterDeletedGroupCustomizations(entries: Map<String, String>): Map<String, String> {
+        val deleted = tombstoneDao.groupDeletions().groupBy { it.profileId }
+        if (deleted.isEmpty()) return entries
+        val store = tv.own.owntv.core.customize.CustomizationStore(context)
+        val restore = mutableMapOf<Pair<Long, MediaType>, MutableSet<String>>()
+        for ((profileId, markers) in deleted) {
+            val scopes = markers.associate { marker ->
+                val identity = JSONObject(marker.identity)
+                (MediaType.valueOf(identity.getString("t")) to identity.getString("ctx")) to marker.deletedAt
+            }
+            var afterId = 0L
+            while (true) {
+                val members = tombstoneDao.memberDeletionsAfter(profileId, afterId, 500)
+                if (members.isEmpty()) break
+                for (member in members) {
+                    val identity = JSONObject(member.identity)
+                    val type = MediaType.valueOf(identity.getString("t"))
+                    val deletedAt = scopes[type to identity.optString("ctx")] ?: continue
+                    if (member.deletedAt < deletedAt) continue
+                    restore.getOrPut(profileId to type) { mutableSetOf() } += tv.own.owntv.core.customize.CustomizeKeys.item(
+                        identity.getLong("src"), identity.optStringOrNull("rid"), identity.getString("name"))
+                }
+                afterId = members.last().id
+            }
+        }
+        return entries.mapValues { (key, raw) ->
+            val body = key.removePrefix("cust_")
+            val profileId = body.substringBefore('_').toLongOrNull()
+            val type = runCatching { MediaType.valueOf(body.substringAfter('_')) }.getOrNull()
+            if (profileId == null || type == null) raw else {
+                val groupIds = deleted[profileId].orEmpty().mapNotNull { marker ->
+                    JSONObject(marker.identity).takeIf { it.optString("t") == type.name }?.optString("ctx")
+                }.toSet()
+                if (groupIds.isEmpty()) raw else store.withoutDeletedGroups(raw, groupIds, restore[profileId to type].orEmpty())
+            }
+        }
+    }
 
     // --- deletions (v36) -------------------------------------------------------------------------
     //
@@ -161,7 +225,7 @@ class UserDataResolver(
         tombstoneDao.record(profileId, kind, canonicalIdentity(record), deletedAt)
     }
 
-    /** Trims the tombstone table to [MAX_TOMBSTONES]. Called once after a bulk deletion, not per row. */
+    /** Caps watch/favorite deletion history, retaining organizational facts across offline merges. */
     suspend fun pruneTombstones() {
         if (tombstoneDao.count() > MAX_TOMBSTONES) tombstoneDao.prune(MAX_TOMBSTONES)
     }
@@ -193,7 +257,9 @@ class UserDataResolver(
      * hears about it, and so the same deletion cannot be undone by an older copy of the row arriving
      * later in the very same payload.
      */
-    suspend fun applyTombstones(entries: JSONArray?): Int {
+    suspend fun applyTombstones(entries: JSONArray?): Int = pendingMutations.withLock { applyTombstonesLocked(entries) }
+
+    private suspend fun applyTombstonesLocked(entries: JSONArray?): Int {
         if (entries == null || entries.length() == 0) return 0
         var applied = 0
         var i = 0
@@ -207,6 +273,7 @@ class UserDataResolver(
             }
             i = end
         }
+        groupDeletions.reconcile()
         pruneTombstones()
         return applied
     }
@@ -217,6 +284,14 @@ class UserDataResolver(
         val pid = e.optLong("p", -1)
         if (pid < 0 || profileDao.getById(pid) == null) return false
         val at = e.optLong("at", 0)
+        if (kind == "group") {
+            val type = runCatching { MediaType.valueOf(e.getString("t")) }.getOrNull() ?: return false
+            val key = e.optString("ctx")
+            if (type == MediaType.EPISODE || !tv.own.owntv.core.customize.CustomizeKeys.isCustom(key) || at <= 0) return false
+            val before = tombstoneDao.deletedAt(pid, kind, canonicalIdentity(groupDeletions.identity(type, key)))
+            recordGroupDeletion(pid, type, key, at)
+            return before == null || before < at
+        }
         // Recorded first: the row may not even exist here (nothing to delete), but a third device
         // still has to learn that it was deleted, and an older copy of it may arrive later.
         tombstoneDao.record(pid, kind, canonicalIdentity(e), at)
@@ -337,7 +412,7 @@ class UserDataResolver(
      * favorites for content that's simply not re-synced yet, instead of leaving them to heal on the
      * next successful sync.
      */
-    suspend fun relinkAfterSync(snapshot: JSONArray, purge: Boolean = true) {
+    suspend fun relinkAfterSync(snapshot: JSONArray, purge: Boolean = true) = pendingMutations.withLock {
         val (unresolved, _) = resolveAllChunked(snapshot)
         // Purge is strictly snapshot-scoped: only rows this snapshot captured (by their old ids) may
         // be dropped, and only when their content row is genuinely gone. An EMPTY snapshot must never
@@ -348,7 +423,7 @@ class UserDataResolver(
             purgeSnapshotOrphans(snapshot)
         }
         if (unresolved.length() > 0) addPending(unresolved)
-        resolvePending() // also retries any in-flight backup restore
+        resolvePendingLocked() // also retries any in-flight backup restore
     }
 
     private fun JSONArray.hasSourceSnapshotIds(): Boolean =
@@ -400,13 +475,23 @@ class UserDataResolver(
      * sync and after a show's episodes load; resolved records are inserted (idempotently — the user
      * data tables have unique (profile, type, item) indices) and removed from the pending set.
      */
-    suspend fun resolvePending(): Int {
+    suspend fun resolvePending(): Int = pendingMutations.withLock { resolvePendingLocked() }
+
+    private suspend fun resolvePendingLocked(): Int {
         val raw = context.pendingStore.data.first()[PENDING_KEY] ?: return 0
         val entries = runCatching { JSONArray(raw) }.getOrNull() ?: return 0
         if (entries.length() == 0) return 0
 
+        val snapshotKeys = (0 until entries.length()).map { entries.getJSONObject(it).toString() }.toSet()
         val (remaining, refused) = resolveAllChunked(entries)
         context.pendingStore.edit { prefs ->
+            val latest = prefs[PENDING_KEY]?.let { JSONArray(it) } ?: JSONArray()
+            val preserved = (0 until remaining.length()).map { remaining.getJSONObject(it).toString() }.toMutableSet()
+            for (i in 0 until latest.length()) {
+                val entry = latest.getJSONObject(i)
+                val key = entry.toString()
+                if (key !in snapshotKeys && preserved.add(key)) remaining.put(entry)
+            }
             if (remaining.length() == 0) prefs.remove(PENDING_KEY) else prefs[PENDING_KEY] = remaining.toString()
         }
         return refused
@@ -429,13 +514,18 @@ class UserDataResolver(
         // ordinary playlist refresh, which relinks thousands of rows through here — the table is
         // empty, and an extra indexed lookup per record is a cost paid for nothing.
         val tombstonesPresent = tombstoneDao.count() > 0
+        val deletedGroups = if (!tombstonesPresent) emptySet() else tombstoneDao.groupDeletions().map { marker ->
+            val identity = JSONObject(marker.identity)
+            Triple(marker.profileId, identity.getString("t"), identity.getString("ctx"))
+        }.toSet()
         var i = 0
         while (i < entries.length()) {
             val end = minOf(i + RESOLVE_CHUNK, entries.length())
             db.transaction {
+                val chunkTombstonesPresent = tombstoneDao.count() > 0
                 for (j in i until end) {
                     val e = entries.getJSONObject(j)
-                    when (runCatching { resolveAndInsert(e, tombstonesPresent) }.getOrDefault(Resolution.PENDING)) {
+                    when (runCatching { resolveAndInsert(e, chunkTombstonesPresent, deletedGroups) }.getOrDefault(Resolution.PENDING)) {
                         Resolution.PENDING -> unresolved.put(e)
                         Resolution.REFUSED -> refused++
                         Resolution.HANDLED -> Unit
@@ -482,6 +572,7 @@ class UserDataResolver(
         val at = e.optLong("at", 0)
         if (tombstoneDao.deletedAt(profileId, kind, canonicalIdentity(e))?.let { it >= at } == true) return false
         val type = runCatching { MediaType.valueOf(e.getString("t")) }.getOrNull() ?: return false
+        if (kind in setOf("member", "order") && groupDeletions.isDeleted(profileId, type, e.optString("ctx"))) return false
         val itemId = locate(type, e) ?: return true
         val ctx = e.optString("ctx")
         return when (kind) {
@@ -500,6 +591,7 @@ class UserDataResolver(
         val kind = e.optString("kind")
         if (kind !in TOMBSTONE_KINDS) return false
         val type = runCatching { MediaType.valueOf(e.getString("t")) }.getOrNull() ?: return false
+        if (kind == "group") return tv.own.owntv.core.customize.CustomizationStore(context).observe(profileId, type).first().customCategories.any { it.id == e.optString("ctx") }
         val itemId = locate(type, e) ?: return false
         val at = e.optLong("at", 0)
         return when (kind) {
@@ -543,11 +635,9 @@ class UserDataResolver(
         PENDING,
     }
 
-    private suspend fun resolveAndInsert(e: JSONObject, tombstonesPresent: Boolean): Resolution {
+    private suspend fun resolveAndInsert(e: JSONObject, tombstonesPresent: Boolean, deletedGroups: Set<Triple<Long, String, String>>): Resolution {
         val type = runCatching { MediaType.valueOf(e.getString("t")) }.getOrNull()
             ?: return Resolution.HANDLED // drop garbage
-        val itemId: Long = locate(type, e) ?: return Resolution.PENDING
-
         // The record's own profile or nothing. This used to fall back to whichever profile happened to
         // be first, which is right for "the active profile was deleted, show me something" but wrong
         // here: it dumps a deleted profile's favorites, history and resume positions into another
@@ -557,6 +647,7 @@ class UserDataResolver(
         // against a profile that is never coming back.
         val pid = e.getLong("p")
         if (pid < 0 || profileDao.getById(pid) == null) return Resolution.HANDLED
+        if (e.optString("kind") in setOf("member", "order") && Triple(pid, e.optString("t"), e.optString("ctx")) in deletedGroups) return Resolution.REFUSED
         // Legacy membership records have no event time. Treating receipt time as a new addition
         // would let an old backup or another device's stale membership undo a user's deletion.
         val at = e.optLong("at", if (e.optString("kind") == "member") 0 else System.currentTimeMillis())
@@ -569,6 +660,8 @@ class UserDataResolver(
         if (tombstonesPresent && tombstoneDao.deletedAt(pid, e.optString("kind"), canonicalIdentity(e))?.let { it >= at } == true) {
             return Resolution.REFUSED
         }
+        // A deleted group is retired even while its catalog identities are temporarily missing.
+        val itemId: Long = locate(type, e) ?: return Resolution.PENDING
         return runCatching {
             when (e.getString("kind")) {
                 "fav" -> favoriteDao.add(FavoriteEntity(profileId = pid, mediaType = type, itemId = itemId, addedAt = at))
@@ -623,7 +716,7 @@ class UserDataResolver(
 
         /** Deletions that travel in a sync payload. Reorder positions are not among them: a position
          *  is overwritten by the newer one, never "missing", so it needs no marker. */
-        val TOMBSTONE_KINDS = setOf("fav", "his", "prog", "member")
+        val TOMBSTONE_KINDS = setOf("fav", "his", "prog", "member", "group")
 
         /** Newest deletions kept. "Clear watch history" writes one per row, and a deletion is only
          *  useful until every device has seen it. */

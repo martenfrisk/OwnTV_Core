@@ -116,6 +116,161 @@ class GroupService(
         throw failure
     }
 
+    suspend fun editGroupsFromTv(edit: GroupDefinitionEdit): Result<GroupDefinitionResult> = try {
+        Result.success(editGroups(edit))
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        Result.failure(failure)
+    }
+
+    suspend fun editGroups(edit: GroupDefinitionEdit): GroupDefinitionResult = try {
+        withContext(Dispatchers.IO) {
+            mutations.withLock {
+                recoverLocked()
+                val scope = edit.scope
+                checkDomain(scope.mediaType != MediaType.EPISODE, GroupError.INVALID_TYPE)
+                val profile = db.profileDao().getById(scope.profileId)
+                    ?: throw GroupEditException(GroupError.INVALID_PROFILE)
+                val linked = db.sourceDao().sourceIdsForProfile(scope.profileId).toSet()
+                val selectedSources = scope.sourceIds ?: linked
+                checkDomain(selectedSources.all { it in linked }, GroupError.INVALID_SOURCE)
+                // Definitions span playlists; deletion also cleans old, unlinked memberships.
+                withSources(db.sourceDao().allSourceIds()) {
+                    val revision = revision()
+                    checkDomain(edit.expectedRevision == null || edit.expectedRevision == revision, GroupError.REVISION_CONFLICT)
+                    val cust = customize.observe(scope.profileId, scope.mediaType).first()
+                    val providers = db.categoryDao().observe(linked.toList(), scope.mediaType).first()
+                    val allowed = providers.filter { it.sourceId in selectedSources &&
+                        (!profile.isKids || !AdultCategoryClassifier.isAdult(it.name)) }.map { CustomizeKeys.category(it) }.toSet() +
+                        cust.customCategories.filter { !profile.isKids || !AdultCategoryClassifier.isAdult(it.name) }.map { it.id }
+                    var keys = edit.groupIds.distinct()
+                    val name = edit.name?.trim()
+                    checkDomain(edit.action == GroupDefinitionAction.RENAME || edit.names.isEmpty(), GroupError.INVALID_GROUP)
+                    if (edit.action == GroupDefinitionAction.CREATE || (edit.action == GroupDefinitionAction.RENAME && name != null)) {
+                        checkDomain(name != null && name.isNotBlank() && name.length <= 120, GroupError.INVALID_NAME)
+                    }
+                    if (edit.action == GroupDefinitionAction.CREATE) {
+                        checkDomain(keys.isEmpty(), GroupError.INVALID_GROUP)
+                        keys = listOf("${CustomizeKeys.CUSTOM_PREFIX}${UUID.randomUUID()}")
+                    } else {
+                        checkDomain(keys.all { it in allowed }, GroupError.INVALID_GROUP)
+                        if (edit.action == GroupDefinitionAction.RENAME) {
+                            checkDomain((edit.names.isEmpty() && keys.size == 1) || edit.names.keys == keys.toSet(), GroupError.INVALID_GROUP)
+                            checkDomain(edit.names.values.all { it == null || (it.isNotBlank() && it.trim().length <= 120) }, GroupError.INVALID_NAME)
+                        } else checkDomain(edit.names.isEmpty(), GroupError.INVALID_GROUP)
+                        if (edit.action == GroupDefinitionAction.DELETE) {
+                            checkDomain(keys.all { key -> cust.customCategories.any { it.id == key } }, GroupError.INVALID_GROUP)
+                        }
+                    }
+                    if (keys.isEmpty()) return@withSources GroupDefinitionResult("", keys, revision)
+                    val resultKeys = keys
+                    if (edit.action == GroupDefinitionAction.DELETE) {
+                        checkDomain(userData.latestGroupMemberTime(scope.profileId, scope.mediaType, keys) < Long.MAX_VALUE, GroupError.POSITION_OVERFLOW)
+                    }
+                    if (edit.action == GroupDefinitionAction.REORDER) {
+                        val natural = providers.map { CustomizeKeys.category(it) } + cust.customCategories.map { it.id }
+                        val complete = (cust.categoryOrder + natural).distinct()
+                        val selected = keys.toSet()
+                        val replacements = keys.iterator()
+                        // Reordering a filtered sidebar leaves every other playlist's slots intact.
+                        keys = complete.map { if (it in selected) replacements.next() else it }
+                    }
+                    val latestDeletion = maxOf(db.customCategoryDao().latestDeletion(scope.profileId),
+                        db.tombstoneDao().latestGroupDeletion(scope.profileId))
+                    checkDomain(latestDeletion < Long.MAX_VALUE, GroupError.POSITION_OVERFLOW)
+                    val id = UUID.randomUUID().toString()
+                    val pending = JSONObject().put("domain", "groups").put("id", id).put("profile", scope.profileId)
+                        .put("type", scope.mediaType.name).put("action", edit.action.name).putOpt("name", name)
+                        .put("deleteAt", maxOf(System.currentTimeMillis(), latestDeletion + 1))
+                        .put("sources", JSONArray(db.sourceDao().allSourceIds())).put("total", keys.size).put("next", 0)
+                    _progress.value = GroupOperationProgress(id, total = keys.size, revision = revision)
+                    try {
+                        val batches = keys.chunked(GROUP_BATCH_SIZE)
+                        for ((index, batch) in batches.withIndex()) {
+                            currentCoroutineContext().ensureActive()
+                            journal.writeChunk(id, index, JSONArray(batch.map { key ->
+                                JSONObject().put("key", key).apply {
+                                    if (edit.action == GroupDefinitionAction.RENAME) putOpt("name", (if (edit.names.isEmpty()) name else edit.names[key])?.trim())
+                                }
+                            }))
+                        }
+                        pending.put("chunks", batches.size)
+                        stateMutex.withLock {
+                            val state = journal.readState()
+                            checkDomain(edit.expectedRevision == null || edit.expectedRevision == state.getLong("revision"), GroupError.REVISION_CONFLICT)
+                            state.put("pending", pending)
+                            journal.writeState(state)
+                        }
+                    } catch (failure: Throwable) {
+                        val published = stateMutex.withLock { journal.readState().optJSONObject("pending")?.optString("id") == id }
+                        if (!published) journal.removeOperation(id)
+                        throw failure
+                    }
+                    val next = withContext(NonCancellable) { replayGroups(pending) }
+                    GroupDefinitionResult(id, resultKeys, next)
+                }
+            }
+        }
+    } catch (cancelled: CancellationException) {
+        _progress.value = GroupOperationProgress(revision = _progress.value.revision)
+        throw cancelled
+    } catch (failure: Exception) {
+        _progress.value = GroupOperationProgress(revision = _progress.value.revision,
+            failure = (failure as? GroupEditException)?.code ?: GroupError.JOURNAL_UNAVAILABLE)
+        throw failure
+    }
+
+    private suspend fun replayGroups(pending: JSONObject): Long {
+        val id = pending.getString("id")
+        val profileId = pending.getLong("profile")
+        val type = MediaType.valueOf(pending.getString("type"))
+        val action = GroupDefinitionAction.valueOf(pending.getString("action"))
+        checkDomain(type != MediaType.EPISODE, GroupError.INVALID_TYPE)
+        checkDomain(db.profileDao().getById(profileId) != null, GroupError.INVALID_PROFILE)
+        val ordered = mutableListOf<String>()
+        for (index in 0 until pending.getInt("chunks")) {
+            val rows = journal.readChunk(id, index)
+            val keys = (0 until rows.length()).map { rows.getJSONObject(it).getString("key") }
+            if (action == GroupDefinitionAction.REORDER) ordered += keys
+            else if (action == GroupDefinitionAction.DELETE) {
+                for (key in keys) {
+                    checkDomain(CustomizeKeys.isCustom(key), GroupError.INVALID_GROUP)
+                    userData.recordGroupDeletion(profileId, type, key, pending.getLong("deleteAt"))
+                }
+                afterStep(GroupMutationStage.GROUP_TOMBSTONE_RECORDED, index)
+                userData.reconcileDeletedGroups(afterStep)
+            } else {
+                val selected = keys.toSet()
+                customize.update(profileId, type) { current ->
+                    when (action) {
+                        GroupDefinitionAction.CREATE -> current.copy(customCategories = current.customCategories +
+                            keys.filterNot { key -> current.customCategories.any { it.id == key } }
+                                .map { CustomCategory(it, pending.getString("name")) })
+                        GroupDefinitionAction.RENAME -> current.copy(categoryNames = current.categoryNames - selected +
+                            (0 until rows.length()).map { rows.getJSONObject(it) }.filter { it.has("name") }
+                                .associate { it.getString("key") to it.getString("name") })
+                        GroupDefinitionAction.HIDE -> current.copy(hiddenCategories = current.hiddenCategories + selected)
+                        GroupDefinitionAction.UNHIDE -> current.copy(hiddenCategories = current.hiddenCategories - selected)
+                        GroupDefinitionAction.RESET -> current.copy(hiddenCategories = current.hiddenCategories - selected,
+                            categoryNames = current.categoryNames - selected, categoryOrder = current.categoryOrder.filterNot { it in selected },
+                            movedFromOrigin = current.movedFromOrigin.filterValues { it !in selected })
+                        GroupDefinitionAction.DELETE, GroupDefinitionAction.REORDER -> current
+                    }
+                }
+                afterStep(GroupMutationStage.GROUP_DEFINITION_WRITTEN, index)
+            }
+            _progress.value = GroupOperationProgress(id, minOf((index + 1) * GROUP_BATCH_SIZE, pending.getInt("total")),
+                pending.getInt("total"), revision())
+            afterStep(GroupMutationStage.CHUNK_COMMITTED, index)
+        }
+        if (action == GroupDefinitionAction.REORDER) {
+            customize.setCategoryOrder(profileId, type, ordered)
+            afterStep(GroupMutationStage.GROUP_DEFINITION_WRITTEN, 0)
+        }
+        return finishOperation(id)
+    }
+
     private suspend fun performEdit(edit: GroupEdit): GroupEditResult = withContext(Dispatchers.IO) {
         mutations.withLock {
             recoverLocked()
@@ -235,7 +390,17 @@ class GroupService(
         if (pending != null) {
             val sources = pending.getJSONArray("sources")
             withSources((0 until sources.length()).map { sources.getLong(it) }) {
-                withContext(NonCancellable) { replay(pending) }
+                withContext(NonCancellable) {
+                    if (pending.optString("domain") == "groups") replayGroups(pending) else replay(pending)
+                }
+            }
+        }
+        if (userData.hasPendingGroupDeletions()) {
+            withSources(db.sourceDao().allSourceIds()) {
+                withContext(NonCancellable) {
+                    userData.reconcileDeletedGroups(afterStep)
+                    advanceRevision()
+                }
             }
         }
         val revision = stateMutex.withLock {
@@ -326,6 +491,11 @@ class GroupService(
             _progress.value = GroupOperationProgress(id, minOf((index + 1) * GROUP_BATCH_SIZE, total), total, revision)
             afterStep(GroupMutationStage.CHUNK_COMMITTED, index)
         }
+        val revision = finishOperation(id)
+        return GroupEditResult(id, total, pending.getInt("added"), revision)
+    }
+
+    private suspend fun finishOperation(id: String): Long {
         val revision = stateMutex.withLock {
             val state = journal.readState()
             state.remove("pending")
@@ -335,7 +505,7 @@ class GroupService(
         }
         journal.removeOperation(id)
         _progress.value = GroupOperationProgress(revision = revision)
-        return GroupEditResult(id, total, pending.getInt("added"), revision)
+        return revision
     }
 
     private suspend fun resolveRows(type: MediaType, rows: JSONArray): LinkedHashMap<JSONObject, Long?> {

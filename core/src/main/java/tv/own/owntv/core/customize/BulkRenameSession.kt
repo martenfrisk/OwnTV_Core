@@ -35,6 +35,16 @@ class BulkRenameSession(
     private val restore: suspend (Set<String>) -> Unit,
     private val existingNames: suspend (selectedKeys: Set<String>) -> Set<String>,
 ) {
+    private data class Callbacks(
+        val persist: suspend (Map<String, String>) -> Unit,
+        val restore: suspend (Set<String>) -> Unit,
+        val existingNames: suspend (Set<String>) -> Set<String>,
+    )
+    private val defaultCallbacks = Callbacks(persist, restore, existingNames)
+    private var callbacks = defaultCallbacks
+    private val sessionLock = Any()
+    @Volatile private var generation = 0L
+
     enum class Screen { NONE, CHOICE, BUILDER, REVIEW, RESTORE_CONFIRM, REFUSED }
 
     private val _screen = MutableStateFlow(Screen.NONE)
@@ -57,10 +67,19 @@ class BulkRenameSession(
     private val _accepted = MutableStateFlow<Map<String, String>>(emptyMap())
     val accepted: StateFlow<Map<String, String>> = _accepted.asStateFlow()
 
-    fun start(entries: List<Pair<String, String>>) {
+    /** Optional callbacks capture the editor's scope rather than reading a later active profile. */
+    fun start(
+        entries: List<Pair<String, String>>,
+        persistOverride: (suspend (Map<String, String>) -> Unit)? = null,
+        restoreOverride: (suspend (Set<String>) -> Unit)? = null,
+        existingNamesOverride: (suspend (Set<String>) -> Set<String>)? = null,
+    ) = synchronized(sessionLock) {
+        callbacks = Callbacks(persistOverride ?: defaultCallbacks.persist, restoreOverride ?: defaultCallbacks.restore,
+            existingNamesOverride ?: defaultCallbacks.existingNames)
+        generation++
         if (entries.size > BULK_RENAME_MAX_ROWS) {
             _screen.value = Screen.REFUSED
-            return
+            return@synchronized
         }
         _entries.value = entries
         _rules.value = emptyList()
@@ -70,16 +89,23 @@ class BulkRenameSession(
         _screen.value = Screen.CHOICE
     }
 
-    fun close() { _screen.value = Screen.NONE }
+    fun close() = synchronized(sessionLock) { generation++; _screen.value = Screen.NONE }
+
+    private fun closeIfCurrent(token: Long) = synchronized(sessionLock) {
+        if (generation == token) { generation++; _screen.value = Screen.NONE }
+    }
 
     // --- choice popup ---
     fun openBuilder() { _screen.value = Screen.BUILDER }
     fun autoCleanup() { _rules.value = RenameRules.autoCleanupRules(); computePreview() }
     fun requestRestore() { _screen.value = Screen.RESTORE_CONFIRM }
     fun confirmRestore() {
+        val token = generation
+        val write = callbacks.restore
+        val keys = _entries.value.map { it.first }.toSet()
         scope.launch {
-            restore(_entries.value.map { it.first }.toSet())
-            close()
+            write(keys)
+            closeIfCurrent(token)
         }
     }
 
@@ -107,9 +133,12 @@ class BulkRenameSession(
 
     /** Writes every accepted row in ONE store transaction, then closes the flow. */
     fun done() {
+        val token = generation
+        val write = callbacks.persist
+        val accepted = _accepted.value
         scope.launch {
-            if (_accepted.value.isNotEmpty()) persist(_accepted.value)
-            close()
+            if (accepted.isNotEmpty()) write(accepted)
+            closeIfCurrent(token)
         }
     }
 
@@ -117,13 +146,17 @@ class BulkRenameSession(
 
     /** Computes the preview on Dispatchers.Default — never the main thread (plan §2.5). */
     private fun computePreview() {
+        val token = generation
+        val names = callbacks.existingNames
+        val sessionEntries = _entries.value
+        val accepted = _accepted.value
+        val rules = _rules.value
+        val options = _options.value
         scope.launch(Dispatchers.Default) {
             // Rows the user already applied stay applied when they choose "Edit rules". Re-running
             // them through a new rule set would make them reappear while their old accepted value
             // still remained queued for Done, which is both misleading and impossible to decline.
-            val entries = _entries.value.filterNot { (key, _) -> key in _accepted.value }
-            val rules = _rules.value
-            val options = _options.value
+            val entries = sessionEntries.filterNot { (key, _) -> key in accepted }
             // Exclude the selected rows' own stored overrides. Otherwise re-applying the same
             // proposed name to an already-renamed row incorrectly warns that it collides with
             // itself; only names belonging to other rows are genuine existing-name collisions.
@@ -132,7 +165,7 @@ class BulkRenameSession(
             // either a new-name batch candidate or (when unchanged) their original name. Counting
             // selected originals unconditionally produced false duplicate warnings for names that
             // the same batch was replacing.
-            val existingOutsideSession = existingNames(_entries.value.map { it.first }.toSet())
+            val existingOutsideSession = names(sessionEntries.map { it.first }.toSet())
             val rows = entries.map { (key, old) ->
                 val raw = RenameRules.applyRaw(old, rules, options)
                 when {
@@ -144,18 +177,23 @@ class BulkRenameSession(
             // Duplicates warn, never block: a new name that repeats inside the batch or already
             // exists in the section (a provider original or another rename).
             val newNameCounts = rows.filter { !it.unchanged }.groupingBy { it.newName }.eachCount()
-            val occupiedNames = existingOutsideSession + _accepted.value.values +
+            val occupiedNames = existingOutsideSession + accepted.values +
                 rows.filter { it.unchanged }.map { it.oldName }
             val batchDupKeys = rows
                 .filter { !it.unchanged && (newNameCounts[it.newName] ?: 0) > 1 }
                 .map { it.key }
                 .toSet()
-            _preview.value = rows.map { r ->
+            val preview = rows.map { r ->
                 if (r.duplicate) r
                 else if (r.key in batchDupKeys || (!r.unchanged && r.newName in occupiedNames)) r.copy(duplicate = true)
                 else r
             }
-            _screen.value = Screen.REVIEW
+            synchronized(sessionLock) {
+                if (generation == token) {
+                    _preview.value = preview
+                    _screen.value = Screen.REVIEW
+                }
+            }
         }
     }
 }

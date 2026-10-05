@@ -745,6 +745,45 @@ class OwnTVDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migrateVersion48To49_retainsDeletionFactsAndAddsUnappliedGroupCleanupState() {
+        context.deleteDatabase(DB_NAME)
+        val old = context.openOrCreateDatabase(DB_NAME, Context.MODE_PRIVATE, null)
+        try {
+            executeSchemaQueries(old, "tv.own.owntv.core.database.OwnTVDatabase/48.json")
+            old.execSQL("INSERT INTO profiles (id, name, avatarColor, avatarId, isKids, pinHash, createdAt) VALUES (1, 'Primary', 0, 0, 0, NULL, 1)")
+            old.execSQL("INSERT INTO user_data_tombstones (id, profileId, kind, identity, deletedAt) VALUES (7, 1, 'member', 'member-key', 120), (8, 1, 'fav', 'favorite-key', 130)")
+            old.execSQL("INSERT INTO custom_category_members (id, profileId, mediaType, contextKey, itemId, position, addedAt) VALUES (9, 1, 'LIVE', 'custom:a', 30, 4, 100)")
+            old.version = 48
+        } finally { old.close() }
+        val db = openWithAllMigrations()
+        try {
+            withConnection(db) { sqlite ->
+                sqlite.prepare("SELECT id, kind, identity, deletedAt, groupAppliedAt FROM user_data_tombstones ORDER BY id").use {
+                    assertTrue(it.step()); assertEquals(7L, it.getLong(0)); assertEquals("member", it.getText(1))
+                    assertEquals("member-key", it.getText(2)); assertEquals(120L, it.getLong(3)); assertEquals(0L, it.getLong(4))
+                    assertTrue(it.step()); assertEquals(8L, it.getLong(0)); assertEquals("fav", it.getText(1))
+                    assertEquals("favorite-key", it.getText(2)); assertEquals(130L, it.getLong(3)); assertEquals(0L, it.getLong(4))
+                }
+                assertCount(sqlite, "custom_category_members", 1)
+                assertIndexExists(sqlite, "index_user_data_tombstones_profileId_kind_identity")
+                runBlocking {
+                    assertEquals(100L, db.customCategoryDao().getAllOnce().single().addedAt)
+                    db.tombstoneDao().record(1, "group", "group-key", 140)
+                    assertTrue(db.tombstoneDao().hasPendingGroupDeletions())
+                    db.tombstoneDao().markGroupApplied(1, "group-key", 140)
+                    db.tombstoneDao().record(1, "group", "group-key", 150)
+                    db.tombstoneDao().markGroupApplied(1, "group-key", 140)
+                    assertTrue(db.tombstoneDao().hasPendingGroupDeletions())
+                }
+                sqlite.execSQL("PRAGMA foreign_keys = ON")
+                sqlite.execSQL("DELETE FROM profiles WHERE id = 1")
+                assertCount(sqlite, "user_data_tombstones", 0)
+                assertCount(sqlite, "custom_category_members", 0)
+            }
+        } finally { db.close() }
+    }
+
     private fun normNameOf(db: SQLiteConnection, epgChannelId: String): String? =
         db.prepare("SELECT normName FROM epg_channels WHERE epgChannelId = ?").use {
             it.bindText(1, epgChannelId)

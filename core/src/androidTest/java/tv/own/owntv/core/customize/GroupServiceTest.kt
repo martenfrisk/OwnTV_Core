@@ -11,6 +11,9 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.json.JSONArray
+import org.json.JSONObject
+import tv.own.owntv.core.database.transaction
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -92,6 +95,261 @@ class GroupServiceTest {
     private suspend fun custom() = store.observe(profile, MediaType.LIVE).first()
     private suspend fun rejected(code: GroupError, command: GroupEdit) {
         try { service.edit(command); fail("Expected $code") } catch (failure: GroupEditException) { assertEquals(code, failure.code) }
+    }
+
+    private fun definition(action: GroupDefinitionAction, keys: List<String> = listOf(a), name: String? = null) =
+        GroupDefinitionEdit(GroupScope(profile, MediaType.LIVE), action, keys, name)
+
+    @Test fun definitionsCreateRenameHideAndResetRemainProfileAndTypeScoped() = runBlocking {
+        val created = service.editGroups(definition(GroupDefinitionAction.CREATE, emptyList(), "  Weekend  ")).groupIds.single()
+        assertEquals("Weekend", custom().customCategories.single { it.id == created }.name)
+        service.editGroups(definition(GroupDefinitionAction.RENAME, listOf(created), "Holiday"))
+        service.editGroups(definition(GroupDefinitionAction.HIDE, listOf(created, origin)))
+        service.edit(edit(GroupAction.MOVE, from = origin))
+        service.editGroups(definition(GroupDefinitionAction.RESET, listOf(origin)))
+        assertTrue(origin !in custom().hiddenCategories)
+        assertTrue(created in custom().hiddenCategories)
+        assertEquals("Holiday", custom().categoryNames[created])
+        assertTrue(custom().movedFromOrigin.isEmpty())
+        assertEquals("News", db.categoryDao().getById(category)!!.name)
+        service.editGroups(definition(GroupDefinitionAction.RENAME, listOf(created)))
+        assertTrue(created !in custom().categoryNames)
+        assertTrue(store.observe(otherProfile, MediaType.LIVE).first().isEmpty)
+        assertTrue(store.observe(profile, MediaType.MOVIE).first().isEmpty)
+    }
+
+    @Test fun bulkRenameValidatesTheEntireSelectionBeforeWriting() = runBlocking {
+        service.editGroups(definition(GroupDefinitionAction.RENAME, listOf(a, b)).copy(names = mapOf(a to "One", b to "Two")))
+        val before = custom()
+        val revision = service.revision()
+        val invalid = listOf(
+            definition(GroupDefinitionAction.CREATE, emptyList(), "  ") to GroupError.INVALID_NAME,
+            definition(GroupDefinitionAction.RENAME, listOf(a, b)).copy(names = mapOf(a to "OK", b to "x".repeat(121))) to GroupError.INVALID_NAME,
+            definition(GroupDefinitionAction.HIDE, listOf(a, "custom:missing")) to GroupError.INVALID_GROUP,
+            definition(GroupDefinitionAction.DELETE, listOf(origin)) to GroupError.INVALID_GROUP,
+            definition(GroupDefinitionAction.HIDE).copy(scope = GroupScope(otherProfile, MediaType.LIVE)) to GroupError.INVALID_GROUP,
+            definition(GroupDefinitionAction.HIDE).copy(scope = GroupScope(profile, MediaType.EPISODE)) to GroupError.INVALID_TYPE,
+            definition(GroupDefinitionAction.HIDE).copy(scope = GroupScope(profile, MediaType.LIVE, setOf(999))) to GroupError.INVALID_SOURCE,
+            definition(GroupDefinitionAction.HIDE).copy(expectedRevision = revision - 1) to GroupError.REVISION_CONFLICT,
+        )
+        for ((command, expected) in invalid) {
+            try { service.editGroups(command); fail("Expected $expected") }
+            catch (failure: GroupEditException) { assertEquals(expected, failure.code) }
+        }
+        assertEquals(before, custom()); assertEquals(revision, service.revision())
+        service.editGroups(definition(GroupDefinitionAction.RENAME, listOf(a, b)).copy(names = mapOf(a to null, b to null)))
+        assertTrue(custom().categoryNames.isEmpty())
+    }
+
+    @Test fun filteredReorderKeepsOtherPlaylistsAndUnselectedGroupSlots() = runBlocking {
+        val other = db.categoryDao().insertAll(listOf(CategoryEntity(sourceId = otherSource, mediaType = MediaType.LIVE, name = "Other", remoteId = "other"))).single()
+        val otherKey = "$otherSource:other"
+        store.setCategoryOrder(profile, MediaType.LIVE, listOf(a, otherKey, origin, b, c))
+        service.editGroups(definition(GroupDefinitionAction.REORDER, listOf(b, a)).copy(scope = GroupScope(profile, MediaType.LIVE, setOf(source))))
+        assertEquals(listOf(b, otherKey, origin, a, c), custom().categoryOrder)
+        assertEquals("Other", db.categoryDao().getById(other)!!.name)
+        try {
+            service.editGroups(definition(GroupDefinitionAction.HIDE, listOf(otherKey)).copy(scope = GroupScope(profile, MediaType.LIVE, setOf(source))))
+            fail("Out-of-filter group accepted")
+        } catch (failure: GroupEditException) { assertEquals(GroupError.INVALID_GROUP, failure.code) }
+    }
+
+    @Test fun deleteRestoresProviderOriginsAndKeepsGlobalHidesFavoritesAndOtherMemberships() = runBlocking {
+        service.edit(edit(GroupAction.MOVE, listOf(1, 2), from = origin))
+        service.edit(edit(GroupAction.COPY, target = b))
+        service.edit(edit(GroupAction.HIDE))
+        db.favoriteDao().add(FavoriteEntity(profileId = profile, mediaType = MediaType.LIVE, itemId = 1))
+        store.setCategoryHidden(profile, MediaType.LIVE, a, true)
+        store.renameCategory(profile, MediaType.LIVE, a, "Removed")
+        store.setCategoryOrder(profile, MediaType.LIVE, listOf(a, b))
+        db.contentOrderDao().insertAll(listOf(ContentOrderEntity(profileId = profile, mediaType = MediaType.LIVE, contextKey = a, itemId = 1, position = 9)))
+        val result = service.editGroups(definition(GroupDefinitionAction.DELETE))
+        assertTrue(custom().customCategories.none { it.id == a })
+        assertTrue(a !in custom().categoryNames && a !in custom().hiddenCategories && a !in custom().categoryOrder)
+        assertTrue(custom().movedFromOrigin.isEmpty())
+        assertFalse(custom().hiddenItems.isEmpty())
+        assertEquals(setOf(b), db.customCategoryDao().contextsOf(profile, MediaType.LIVE, 1).toSet())
+        assertFalse(db.customCategoryDao().exists(profile, MediaType.LIVE, a, 2))
+        assertTrue(db.favoriteDao().exists(profile, MediaType.LIVE, 1))
+        assertEquals(category, db.channelDao().getById(1)!!.categoryId)
+        assertEquals(1, resolver.exportTombstones(setOf("group")).length())
+        assertEquals(2, resolver.exportTombstones(setOf("member")).length())
+        assertFalse(db.tombstoneDao().hasPendingGroupDeletions())
+        assertEquals(result.revision, service.revision())
+        assertNull(context.pendingStore.data.first()[PENDING_KEY])
+    }
+
+    @Test fun definitionDeletionRecoversAtEveryCrossStoreBoundary() = runBlocking {
+        for (stage in listOf(GroupMutationStage.GROUP_TOMBSTONE_RECORDED, GroupMutationStage.GROUP_DEFINITION_WRITTEN,
+            GroupMutationStage.GROUP_CLEANUP_COMPLETE, GroupMutationStage.CHUNK_COMMITTED)) {
+            val group = service.editGroups(definition(GroupDefinitionAction.CREATE, emptyList(), "Recover")).groupIds.single()
+            service.edit(edit(GroupAction.MOVE, target = group, from = origin))
+            val before = service.revision()
+            val interrupted = newService { step, _ -> if (step == stage) error("Simulated process death") }
+            assertTrue(interrupted.editGroupsFromTv(definition(GroupDefinitionAction.DELETE, listOf(group))).isFailure)
+            service = newService(); service.recover(); service.recover()
+            assertEquals(before + 1, service.revision())
+            assertTrue(custom().customCategories.none { it.id == group })
+            assertFalse(db.customCategoryDao().exists(profile, MediaType.LIVE, group, 1))
+            assertTrue(custom().movedFromOrigin.isEmpty())
+            assertFalse(db.tombstoneDao().hasPendingGroupDeletions())
+            assertTrue(directory.listFiles()!!.all { it.name == "state.json" })
+        }
+    }
+
+    @Test fun createdDefinitionReplaysWithTheSameIdAndExactlyOneRevision() = runBlocking {
+        val before = service.revision()
+        val interrupted = newService { stage, _ -> if (stage == GroupMutationStage.GROUP_DEFINITION_WRITTEN) error("Simulated restart") }
+        assertTrue(interrupted.editGroupsFromTv(definition(GroupDefinitionAction.CREATE, emptyList(), "Once")).isFailure)
+        val saved = custom().customCategories.single { it.name == "Once" }.id
+        service = newService(); service.recover(); service.recover()
+        assertEquals(listOf(saved), custom().customCategories.filter { it.name == "Once" }.map { it.id })
+        assertEquals(before + 1, service.revision())
+    }
+
+    @Test fun staleBackupCannotResurrectDeletedDefinitionsMembersOrProviderSuppression() = runBlocking {
+        service.edit(edit(GroupAction.MOVE, from = origin))
+        val staleCustomization = store.exportAll()
+        val staleMembers = resolver.exportAll(setOf("member"))
+        val record = staleMembers.getJSONObject(0)
+        record.put("at", Long.MAX_VALUE - 1) // A deleted UUID is retired, even with a newer membership clock.
+        service.editGroups(definition(GroupDefinitionAction.DELETE))
+        store.mergeAll(resolver.filterDeletedGroupCustomizations(staleCustomization), mergeCustomGroups = true)
+        assertFalse(resolver.wouldAdd(profile, "member", record))
+        assertEquals(1, resolver.importAll(staleMembers))
+        assertTrue(custom().customCategories.none { it.id == a })
+        assertTrue(custom().movedFromOrigin.isEmpty())
+        assertTrue(db.customCategoryDao().getAllOnce().isEmpty())
+        assertNull(context.pendingStore.data.first()[PENDING_KEY])
+        // An explicit restore replaces local deletion history, unlike Merge.
+        resolver.clearDeletionsFor(listOf(profile))
+        store.mergeAll(staleCustomization)
+        assertEquals(0, resolver.importAll(staleMembers))
+        assertTrue(custom().customCategories.any { it.id == a })
+        assertTrue(db.customCategoryDao().exists(profile, MediaType.LIVE, a, 1))
+    }
+
+    @Test fun incomingGroupDeletionRestoresOriginsEvenWhenMemberFactsArriveFirst() = runBlocking {
+        service.edit(edit(GroupAction.MOVE, from = origin))
+        val at = System.currentTimeMillis() + 1000
+        val member = resolver.exportAll(setOf("member")).getJSONObject(0).put("at", at)
+        val group = JSONObject().put("p", profile).put("t", "LIVE").put("src", -1).put("ctx", a).put("kind", "group").put("at", at)
+        resolver.applyTombstones(JSONArray().put(member).put(group))
+        assertTrue(custom().customCategories.none { it.id == a })
+        assertTrue(custom().movedFromOrigin.isEmpty())
+        assertTrue(db.customCategoryDao().getAllOnce().isEmpty())
+        assertFalse(db.tombstoneDao().hasPendingGroupDeletions())
+    }
+
+    @Test fun importedDeletionIntentRecoversWithoutAServiceJournal() = runBlocking {
+        service.edit(edit(GroupAction.MOVE, from = origin))
+        resolver.recordGroupDeletion(profile, MediaType.LIVE, a, System.currentTimeMillis() + 1000)
+        val before = service.revision()
+        service = newService(); service.recover()
+        assertEquals(before + 1, service.revision())
+        assertTrue(custom().customCategories.none { it.id == a })
+        assertTrue(custom().movedFromOrigin.isEmpty())
+        service.recover(); assertEquals(before + 1, service.revision())
+    }
+
+    @Test fun groupMergeKeepsNewLocalGroupsMissingFromAnOfflinePeer() = runBlocking {
+        val stale = store.exportAll()
+        val group = service.editGroups(definition(GroupDefinitionAction.CREATE, emptyList(), "Local only")).groupIds.single()
+        service.editGroups(definition(GroupDefinitionAction.RENAME, listOf(group), "Local name"))
+        service.editGroups(definition(GroupDefinitionAction.HIDE, listOf(group)))
+        store.mergeAll(stale, mergeCustomGroups = true)
+        assertTrue(custom().customCategories.any { it.id == group })
+        assertEquals("Local name", custom().categoryNames[group])
+        assertTrue(group in custom().hiddenCategories)
+    }
+
+    @Test fun deletingLargeGroupRetainsEveryMembershipFactBeyondTheWatchHistoryCap() = runBlocking {
+        channels(4..10001)
+        service.edit(edit(GroupAction.MOVE, (1L..10001L).toList(), from = origin))
+        service.editGroups(definition(GroupDefinitionAction.DELETE))
+        db.tombstoneDao().prune(10_000)
+        assertEquals(10001, resolver.exportTombstones(setOf("member")).length())
+        assertEquals(1, resolver.exportTombstones(setOf("group")).length())
+        assertTrue(custom().movedFromOrigin.isEmpty())
+        assertTrue(db.customCategoryDao().getAllOnce().isEmpty())
+        assertEquals(10001, db.channelDao().countForSourceOnce(source))
+    }
+
+    private fun backups(): BackupManager = BackupManager(
+        db.profileDao(), db.sourceDao(), tv.own.owntv.core.settings.SettingsRepository(context, tv.own.owntv.core.i18n.LocaleStore.from(context)),
+        store, resolver, tv.own.owntv.core.epg.EpgSourceStore(context),
+        tv.own.owntv.core.player.ForceMpvStore(context, db.playbackQuirkDao()),
+        tv.own.owntv.core.player.VodEngineStore(context, db.playbackQuirkDao()), db,
+        tv.own.owntv.core.metadata.MetadataOverrideStore(context), db.metadataDao(),
+        tv.own.owntv.core.subtitles.OpenSubtitlesAuthStore(context), File(directory, "backgrounds"), File(directory, "subtitles"),
+        tv.own.owntv.core.profile.ProfileAvatarStore(context), service,
+    )
+
+    @Test fun customizeOnlyBackupCarriesMembersAndPreservesDeletionAcrossMergeButAllowsExplicitRestore() = runBlocking {
+        service.edit(edit(GroupAction.MOVE, from = origin))
+        val manager = backups()
+        val folder = File(context.cacheDir, "backup-groups-${UUID.randomUUID()}")
+        try {
+            val file = File(manager.export(folder, setOf(BackupManager.Section.CUSTOMIZE), profileIds = setOf(profile), recordAsBackup = false).getOrThrow())
+            val data = JSONObject(BackupContainer.open(file, null).json)
+            assertEquals(1, data.getJSONArray("userData").length())
+            assertEquals("member", data.getJSONArray("userData").getJSONObject(0).getString("kind"))
+            service.editGroups(definition(GroupDefinitionAction.DELETE))
+            manager.import(file, setOf(BackupManager.Section.CUSTOMIZE), mode = BackupManager.ImportMode.MERGE).getOrThrow()
+            assertTrue(custom().customCategories.none { it.id == a })
+            assertTrue(custom().movedFromOrigin.isEmpty())
+            assertTrue(db.customCategoryDao().getAllOnce().isEmpty())
+            manager.import(file, setOf(BackupManager.Section.CUSTOMIZE), mode = BackupManager.ImportMode.RESTORE).getOrThrow()
+            assertTrue(custom().customCategories.any { it.id == a })
+            assertTrue(db.customCategoryDao().exists(profile, MediaType.LIVE, a, 1))
+            assertTrue(db.tombstoneDao().groupDeletions().isEmpty())
+        } finally { folder.deleteRecursively() }
+    }
+
+    @Test fun deletionOnlyBackupIsDiscoverableAndCleansDefinitionAfterProfileIdRemapping() = runBlocking {
+        service.edit(edit(GroupAction.MOVE, from = origin))
+        val at = System.currentTimeMillis() + 1000
+        val file = File(context.cacheDir, "group-deleted-${UUID.randomUUID()}.json")
+        try {
+            val incomingProfile = 900L
+            val group = JSONObject().put("p", incomingProfile).put("t", "LIVE").put("src", -1).put("ctx", a).put("kind", "group").put("at", at)
+            val root = JSONObject().put("version", 24).put("profiles", JSONArray().put(JSONObject().put("id", incomingProfile).put("name", "Primary").put("avatarColor", 0).put("createdAt", 1)))
+                .put("tombstones", JSONArray().put(group))
+            file.writeText(root.toString())
+            val manager = backups()
+            assertTrue(BackupManager.Section.CUSTOMIZE in manager.sectionsIn(file).getOrThrow().sections)
+            manager.import(file, setOf(BackupManager.Section.CUSTOMIZE), mode = BackupManager.ImportMode.MERGE).getOrThrow()
+            assertTrue(custom().customCategories.none { it.id == a })
+            assertTrue(custom().movedFromOrigin.isEmpty())
+            assertTrue(db.customCategoryDao().getAllOnce().isEmpty())
+            val marker = db.tombstoneDao().groupDeletions().single()
+            assertEquals(profile, marker.profileId)
+            assertEquals(-1L, JSONObject(marker.identity).getLong("src"))
+        } finally { file.delete() }
+    }
+
+    @Test fun unrepresentableMemberTimeFailsBeforePublishingDeletion() = runBlocking {
+        db.customCategoryDao().insertAll(listOf(CustomCategoryMemberEntity(profileId = profile, mediaType = MediaType.LIVE,
+            contextKey = a, itemId = 1, position = 0, addedAt = Long.MAX_VALUE)))
+        val before = service.revision()
+        try { service.editGroups(definition(GroupDefinitionAction.DELETE)); fail("Overflow accepted") }
+        catch (failure: GroupEditException) { assertEquals(GroupError.POSITION_OVERFLOW, failure.code) }
+        assertEquals(before, service.revision())
+        assertTrue(custom().customCategories.any { it.id == a })
+        assertTrue(db.tombstoneDao().groupDeletions().isEmpty())
+        service.recover(); assertEquals(before, service.revision())
+    }
+
+    @Test fun deletedGroupDropsMissingCatalogMembersAndOrdersInsteadOfKeepingThemPending() = runBlocking {
+        service.editGroups(definition(GroupDefinitionAction.DELETE))
+        val missing = JSONObject().put("p", profile).put("t", "LIVE").put("src", source).put("rid", "not-loaded")
+            .put("name", "Missing").put("ctx", a).put("pos", 0).put("at", Long.MAX_VALUE - 1)
+        val records = JSONArray().put(JSONObject(missing.toString()).put("kind", "member"))
+            .put(JSONObject(missing.toString()).put("kind", "order"))
+        assertEquals(2, resolver.importAll(records))
+        assertNull(context.pendingStore.data.first()[PENDING_KEY])
+        assertFalse(resolver.wouldAdd(profile, "member", records.getJSONObject(0)))
+        assertFalse(resolver.wouldAdd(profile, "order", records.getJSONObject(1)))
     }
 
     @Test fun copyIsOrderedIdempotentAndKeepsProviderFavoritesAndOtherGroups() = runBlocking {
